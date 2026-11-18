@@ -5,3 +5,6 @@ __pycache__/
 *.gguf
 *.apk
 *.jks
+.venv/
+prostranstvo/runs/
+prostranstvo/models/

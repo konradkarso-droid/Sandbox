@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Пространство — песочница</title>
+<!--
+  Экран песочницы «Пространство». Цвета — из приложения агента
+  (docs/pesochnitsa_specifikatsiya.md, §6). Раскладка под левую руку, как у
+  агента: «Пуск» внизу слева, «Стоп» — красный, в дальнем правом верхнем
+  углу; рядом со «Стоп» нет ничего, что жмут часто.
+  Страница ничего не решает за среду: она шлёт настройки и показывает то,
+  что прочитано из журнала. Законы проверяет наблюдатель.
+-->
+<style>
+  :root {
+    --page: #EAF3F6; --card: #FFFFFF; --text: #123540; --text2: #3A6470; --muted: #7FA3AE;
+    --primary: #17697B; --stop: #D6453E; --alarm-bg: #FBE3E1; --alarm: #A3231D;
+    --model: #5B4B9E; --block: #EDF3F4; --rule: #9BB0B5; --na: #FCE8B8; --off: #C9DAE0;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--page); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 14px 14px 96px; }
+  button { font: inherit; border: 0; border-radius: 10px; cursor: pointer; }
+  button:disabled { cursor: default; opacity: .45; }
+  .top { display: flex; align-items: center; gap: 8px; }
+  .top .title { flex: 1; text-align: center; font-weight: 600; letter-spacing: .2px; }
+  .top .title small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+  .ghost { background: transparent; color: var(--muted); padding: 8px 10px; font-size: 13px; }
+  .ghost.dark { color: var(--primary); background: var(--card); }
+  .stop { background: var(--stop); color: #fff; padding: 9px 18px; font-size: 14px; font-weight: 600; }
+  .progress { font: 12px/1.4 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; color: var(--primary);
+    margin: 8px 2px 0; min-height: 17px; }
+  .banner { background: var(--alarm-bg); color: var(--alarm); border-radius: 10px; padding: 10px 12px;
+    margin-top: 10px; font-size: 13px; white-space: pre-wrap; }
+  .note { background: var(--na); color: var(--text); border-radius: 10px; padding: 10px 12px; margin-top: 10px;
+    font-size: 13px; }
+  .card { background: var(--card); border-radius: 14px; padding: 14px; margin-top: 12px; }
+  .label { font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 8px; }
+  .hint { color: var(--text2); font-size: 13px; margin: 8px 0 0; }
+  .muted { color: var(--muted); }
+  .seg { display: flex; background: var(--block); border-radius: 12px; padding: 4px; gap: 4px; }
+  .seg button { flex: 1; background: transparent; color: var(--text2); padding: 10px 8px; text-align: center; }
+  .seg button small { display: block; font-size: 12px; color: var(--muted); }
+  .seg button.on { background: var(--primary); color: #fff; }
+  .seg button.on small { color: #d8ecef; }
+  .seg button:disabled { opacity: .5; }
+  .opt { display: flex; gap: 10px; align-items: flex-start; padding: 8px 4px; border-top: 1px solid var(--block); }
+  .opt:first-child { border-top: 0; }
+  .opt input { margin-top: 4px; accent-color: var(--primary); }
+  .opt small { display: block; color: var(--muted); }
+  input[type=text], input[type=password], input[type=number], select, textarea {
+    width: 100%; font: inherit; color: var(--text); background: var(--block); border: 1px solid transparent;
+    border-radius: 10px; padding: 9px 10px; margin-top: 6px; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); background: #fff; }
+  textarea { resize: vertical; min-height: 74px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > input { flex: 1; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--block); color: var(--text2); padding: 6px 10px; font-size: 13px; border-radius: 999px; }
+  .chip.on { background: var(--primary); color: #fff; }
+  .counter { font-size: 12px; color: var(--muted); text-align: right; margin-top: 4px; }
+  .counter.over { color: var(--alarm); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid label { font-size: 13px; color: var(--text2); }
+  .dl { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; background: linear-gradient(transparent, var(--page) 30%);
+    padding: 18px 14px 14px; }
+  .bar .in { max-width: 860px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
+  .primary { background: var(--primary); color: #fff; padding: 13px 34px; font-size: 16px; font-weight: 600;
+    box-shadow: 0 2px 8px rgba(23,105,123,.25); }
+  .hidden { display: none !important; }
+  .contours { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  @media (min-width: 760px) { .contours.two { grid-template-columns: 1fr 1fr; } }
+  .stats { font-size: 13px; color: var(--text2); }
+  .stats b { color: var(--text); font-weight: 600; }
+  .turn { border-top: 1px solid var(--block); padding: 8px 0; }
+  .turn .head { display: flex; gap: 8px; cursor: pointer; }
+  .turn .n { color: var(--muted); font-size: 12px; min-width: 26px; padding-top: 2px; }
+  .turn .move { color: var(--model); font-weight: 600; word-break: break-word; }
+  .turn .move.bad { color: var(--muted); font-weight: 400; font-style: italic; }
+  .turn .secs { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .eff { font-size: 13px; color: var(--text2); margin: 2px 0 0 34px; }
+  .eff.bad { color: var(--alarm); }
+  .eff.agent { color: var(--muted); font-style: italic; }
+  .full { margin: 8px 0 0 34px; }
+  pre { background: var(--block); border-left: 3px solid var(--rule); border-radius: 6px; padding: 8px 10px;
+    font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-word;
+    max-height: 320px; overflow: auto; margin: 4px 0 8px; color: var(--text); }
+  pre.model { border-left-color: var(--model); }
+  .verdict-head { font-size: 17px; font-weight: 600; padding: 12px 14px; border-radius: 12px; }
+  .verdict-head.ok { background: #DDF0F2; color: var(--primary); }
+  .verdict-head.bad { background: var(--alarm-bg); color: var(--alarm); }
+  .group { border-top: 1px solid var(--block); padding: 8px 0; }
+  .group > .gh { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .dot.держится { background: var(--primary); } .dot.нарушен { background: var(--stop); }
+  .dot.не.применим, .dot.na { background: #E8C878; }
+  .law { font-size: 13px; color: var(--text2); margin: 4px 0 0 18px; display: flex; gap: 8px; }
+  .law .k { font-weight: 600; color: var(--text); min-width: 52px; }
+  .law .d { color: var(--muted); }
+  a { color: var(--primary); }
+  .tiny { font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <button id="btnDetails" class="ghost">Подробно ▾</button>
+    <div class="title">Пространство<small>песочница «Теории среды»</small></div>
+    <button id="btnStop" class="stop" disabled>Стоп</button>
+  </div>
+  <div id="progress" class="progress"></div>
+  <div id="banner" class="banner hidden"></div>
+  <div id="note" class="note hidden"></div>
+
+  <div id="setup">
+    <section class="card">
+      <div class="label">Контур</div>
+      <div class="seg" id="seg">
+        <button data-c="сомкнутый">Сомкнутый<small>модель здесь</small></button>
+        <button data-c="разомкнутый">Разомкнутый<small>облачная модель</small></button>
+      </div>
+      <p class="hint" id="contourHint"></p>
+
+      <div id="closedBox">
+        <div id="localList"></div>
+        <div class="dl" id="dlButtons"></div>
+        <p class="hint" id="llamaHint"></p>
+      </div>
+
+      <div id="openBox" class="hidden">
+        <select id="preset"></select>
+        <input type="text" id="base" placeholder="адрес, например https://openrouter.ai/api/v1">
+        <div class="row">
+          <input type="text" id="model" list="modelList" placeholder="имя модели">
+          <button id="btnModels" class="ghost dark">Список</button>
+        </div>
+        <datalist id="modelList"></datalist>
+        <input type="password" id="key" placeholder="ключ — не сохраняется" autocomplete="off">
+        <p class="hint" id="keyHint"></p>
+        <div class="row" style="margin-top:8px">
+          <button id="btnCheck" class="ghost dark">Проверить связь</button>
+          <span id="checkOut" class="hint" style="margin:0"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="label">Слова агенту</div>
+      <div class="chips" id="chips"></div>
+      <textarea id="words"></textarea>
+      <div class="counter" id="wordsCount"></div>
+    </section>
+
+    <section class="card hidden" id="details">
+      <div class="label">Подробно</div>
+      <div class="grid">
+        <label>Бюджет агента<input type="number" id="budget" value="625" min="20"></label>
+        <label>Предел ответа модели, байт<input type="number" id="answer" value="1024" min="16" max="1024"></label>
+        <label>Срок ответа модели, с (0 — сам)<input type="number" id="timeout" value="0" min="0" max="3600"></label>
+        <label>Задачи: номер набора<input type="number" id="seed" value="1" min="0"></label>
+        <label>Второй агент
+          <select id="second"><option value="молчит">молчит (сосед есть, но не ходит)</option>
+            <option value="такой же">такой же, с той же моделью</option></select></label>
+        <label id="tokLabel">Токенов на ответ облака (пусто — половина предела)<input type="number" id="maxTokens" min="16"></label>
+      </div>
+      <p class="hint" id="envInfo"></p>
+    </section>
+  </div>
+
+  <section id="live" class="hidden">
+    <div class="contours" id="contours"></div>
+  </section>
+  <section id="verdict" class="card hidden"></section>
+</div>
+
+<div class="bar">
+  <div class="in">
+    <button id="btnStart" class="primary">Пуск</button>
+    <button id="btnAgain" class="ghost dark hidden">Новый прогон</button>
+    <span id="startHint" class="hint" style="margin:0"></span>
+  </div>
+</div>
+
+<script>
+"use strict";
+const TOKEN = "__TOKEN__";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const bytes = (s) => new TextEncoder().encode(s).length;
+const kb = (n) => n < 1024 ? `${n} Б` : `${(n / 1024).toFixed(1).replace(".", ",")} КБ`;
+
+async function api(path, body) {
+  const opt = body === undefined ? {headers: {"X-Token": TOKEN}}
+    : {method: "POST", headers: {"X-Token": TOKEN, "content-type": "application/json"}, body: JSON.stringify(body)};
+  const r = await fetch(path, opt);
+  const j = await r.json().catch(() => ({error: `ответ ${r.status}`}));
+  if (!r.ok) throw new Error(j.error || `ответ ${r.status}`);
+  return j;
+}
+
+let INFO = null, contour = "сомкнутый", local = "демо", running = false, since = 0, poll = null;
+let activity = {text: "", since: 0}, clockSkew = 0, turns = {1: {}, 2: {}}, scenario = null;
+
+function banner(text) { $("banner").textContent = text || ""; $("banner").classList.toggle("hidden", !text); }
+function note(text) { $("note").textContent = text || ""; $("note").classList.toggle("hidden", !text); }
+
+// ---- контур
+function setContour(c) {
+  contour = c;
+  for (const b of $("seg").children) b.classList.toggle("on", b.dataset.c === c);
+  $("closedBox").classList.toggle("hidden", c !== "сомкнутый");
+  $("openBox").classList.toggle("hidden", c !== "разомкнутый");
+  $("tokLabel").classList.toggle("hidden", c !== "разомкнутый");
+  const s = INFO.seal[c];
+  let h;
+  if (c === "сомкнутый") {
+    h = s === null ? "Сеть у песочницы отнята системой (печать сети). Вопросы агента не покидают компьютер."
+      : INFO.unshare ? "Печать сети здесь не ставится; сеть у процесса модели отнята пустым сетевым пространством."
+      : "Сомкнутый контур здесь недоступен: системе нечем отнять сеть у песочницы.";
+  } else {
+    h = "Вопросы агента уходят облачной модели — это второй разрешённый вывод. Всё, что уходит, " +
+        "оплачено из бюджета и записано в журнал до отправки. Сеть есть только у связи — части программы экрана, " +
+        "которая передаёт вопросы облаку; " +
+        (s === null ? "у песочницы она отнята системой." : "печать сети здесь не ставится — песочницу держит устройство ворот.");
+  }
+  $("contourHint").textContent = h;
+  checkReady();
+}
+
+function renderLocal() {
+  const rows = [`<label class="opt"><input type="radio" name="lm" value="демо" ${local === "демо" ? "checked" : ""}>
+    <span>Демо — без модели<small>заранее записанные ходы, среди них попытки выхода; несколько секунд</small></span></label>`];
+  for (const m of INFO.models) rows.push(`<label class="opt"><input type="radio" name="lm" value="${esc(m.name)}"
+    ${local === m.name ? "checked" : ""}><span>${esc(m.name)}<small>${m.mb} МБ, папка models</small></span></label>`);
+  $("localList").innerHTML = rows.join("");
+  for (const r of document.querySelectorAll('input[name=lm]')) r.onchange = () => { local = r.value; checkReady(); };
+  const have = new Set(INFO.models.map((m) => m.name));
+  $("dlButtons").innerHTML = INFO.downloads.filter((d) => !have.has(d.file)).map((d) =>
+    `<button class="ghost dark" data-dl="${d.id}">Скачать ${esc(d.name)} · ${(d.size_mb / 1024).toFixed(1).replace(".", ",")} ГБ</button>`).join("");
+  for (const b of document.querySelectorAll("[data-dl]")) b.onclick = () => download(b.dataset.dl, b);
+  $("llamaHint").textContent = INFO.llama ? "" :
+    "Чтобы запускать файлы моделей, нужен движок: в терминале `python3 start.py --local` (сборка — минут десять).";
+}
+
+async function download(id, btn) {
+  btn.disabled = true;
+  try { await api("/api/download", {id}); } catch (e) { banner(e.message); btn.disabled = false; return; }
+  const t = setInterval(async () => {
+    const d = (await api("/api/downloads"))[id];
+    if (!d) return;
+    if (d.state === "идёт") btn.textContent = `Качаю… ${Math.round(100 * d.done / d.total)}%`;
+    else { clearInterval(t); if (d.state === "ошибка") { banner("Модель не скачалась: " + d.error); btn.disabled = false; }
+           INFO = await api("/api/info"); renderLocal(); }
+  }, 700);
+}
+
+// ---- облако
+function presetObj() { return INFO.presets.find((p) => p.id === $("preset").value); }
+function onPreset() {
+  const p = presetObj();
+  if (p.base) $("base").value = p.base;
+  $("key").placeholder = p.key_env === "" && p.base.startsWith("http://127.") ? "ключ не нужен" : "ключ — не сохраняется";
+  $("keyHint").textContent = p.has_env_key ? `Ключ взят из переменной ${p.key_env}; поле можно оставить пустым.`
+    : INFO.generic_env_key ? "Ключ взят из переменной PROSTRANSTVO_KEY; поле можно оставить пустым." :
+    (p.key_env ? `Ключ можно не вводить здесь, а задать переменной ${p.key_env} перед запуском.` : "");
+  $("modelList").innerHTML = "";
+  checkReady();
+}
+function cloudBody() {
+  const p = presetObj(), c = {preset: p.id, kind: p.kind, base: $("base").value.trim(), model: $("model").value.trim(),
+    key: $("key").value};
+  if ($("maxTokens").value) c.max_tokens = Number($("maxTokens").value);
+  return {cloud: c};
+}
+async function listModels() {
+  $("checkOut").textContent = "спрашиваю список…";
+  try {
+    const r = await api("/api/cloud/models", cloudBody());
+    $("modelList").innerHTML = r.models.map((m) => `<option value="${esc(m)}">`).join("");
+    $("checkOut").textContent = `моделей: ${r.models.length} — начни вводить имя`;
+  } catch (e) { $("checkOut").textContent = e.message; }
+}
+async function checkCloud() {
+  $("checkOut").textContent = "спрашиваю…";
+  try {
+    const r = await api("/api/cloud/check", cloudBody());
+    $("checkOut").textContent = `связь есть: «${r.answer.trim().slice(0, 40)}»`;
+  } catch (e) { $("checkOut").textContent = "нет: " + e.message; }
+}
+
+// ---- слова
+function renderChips() {
+  const names = Object.keys(INFO.scenarios);
+  $("chips").innerHTML = names.map((n) => `<button class="chip" data-s="${esc(n)}">${esc(n)}</button>`).join("");
+  for (const b of document.querySelectorAll("[data-s]")) b.onclick = () => { pickScenario(b.dataset.s); };
+}
+function pickScenario(n) {
+  scenario = n; $("words").value = INFO.scenarios[n];
+  for (const b of document.querySelectorAll("[data-s]")) b.classList.toggle("on", b.dataset.s === n);
+  countWords();
+}
+function countWords() {
+  const n = bytes($("words").value), lim = INFO.words_bytes;
+  $("wordsCount").textContent = `${n} / ${lim} байт` + (n > lim ? " — агент прочтёт только начало" : "");
+  $("wordsCount").classList.toggle("over", n > lim);
+  checkReady();
+}
+
+function checkReady() {
+  if (!INFO || running) return;
+  let why = "";
+  if (!INFO.agent) why = INFO.agent_error || "агент не собран";
+  else if (!$("words").value.trim()) why = "напиши агенту, что делать";
+  else if (contour === "сомкнутый") {
+    if (!INFO.closed_ok) why = "сомкнутый контур здесь недоступен";
+    else if (local !== "демо" && !INFO.llama) why = "нужен движок местной модели";
+  } else if (!$("base").value.trim() || !$("model").value.trim()) why = "укажи адрес и модель";
+  $("btnStart").disabled = !!why;
+  $("startHint").textContent = why;
+}
+
+// ---- прогон
+function settings() {
+  const b = {contour, words: $("words").value, budget: Number($("budget").value), answer: Number($("answer").value),
+    timeout: Number($("timeout").value), seed: Number($("seed").value), second: $("second").value};
+  if (contour === "сомкнутый") b.model = local; else Object.assign(b, cloudBody());
+  return b;
+}
+
+async function start() {
+  banner(""); note("");
+  try { await api("/api/start", settings()); }
+  catch (e) { banner(e.message); return; }
+  running = true; since = 0; turns = {1: {}, 2: {}};
+  $("btnStart").disabled = true; $("btnStop").disabled = false; $("btnAgain").classList.add("hidden");
+  $("startHint").textContent = "";
+  $("setup").classList.add("hidden"); $("live").classList.remove("hidden");
+  $("verdict").classList.add("hidden"); $("verdict").innerHTML = "";
+  const two = $("second").value === "такой же";
+  $("contours").className = "contours" + (two ? " two" : "");
+  $("contours").innerHTML = [1, 2].filter((i) => i === 1 || two).map((i) => `
+    <div class="card"><div class="label">Агент ${i}</div><div class="stats" id="st${i}"></div><div id="t${i}"></div></div>`).join("")
+    + (two ? "" : `<p class="hint tiny">Второй агент молчит: его контур есть, но он не ходит. Закон «контуры не сообщаются» проверяет, что к нему ничего не просочилось.</p>`);
+  poll = setInterval(tick, 700); tick();
+}
+
+async function stop() { $("btnStop").disabled = true; try { await api("/api/stop", {}); } catch (e) { banner(e.message); } }
+
+function statsLine(t, budget) {
+  const refusals = Object.entries(t.refusals).map(([c, n]) => `${c}: ${n}`).join(", ");
+  return `бюджет <b>${budget}</b> → осталось <b>${t.left}</b> · вопросов модели <b>${t.questions}</b>` +
+    ` · к модели <b>${kb(t.bytes_to_model)}</b>` + (t.silent ? ` · модель молчала <b>${t.silent}</b>` : "") +
+    (t.unparsed ? ` · не ход <b>${t.unparsed}</b>` : "") + (refusals ? ` · отказы ворот: ${refusals}` : "") +
+    (t.accepted ? ` · сдано ответов <b>${t.accepted}</b>` : "");
+}
+
+function turnEl(i, n) {
+  let el = turns[i][n];
+  if (el) return el;
+  el = document.createElement("div"); el.className = "turn";
+  el.innerHTML = `<div class="head"><span class="n">${n}</span><span class="move bad">спрашивает модель…</span><span class="secs"></span></div>
+    <div class="effs"></div><div class="full hidden"></div>`;
+  el.querySelector(".head").onclick = () => el.querySelector(".full").classList.toggle("hidden");
+  const box = $("t" + i); if (box) box.appendChild(el);
+  turns[i][n] = el; return el;
+}
+
+function apply(ev) {
+  if (ev.contour === 2 && !$("t2")) return;
+  if (ev.type === "turn") {
+    const el = turnEl(ev.contour, ev.n);
+    el.querySelector(".full").innerHTML = `<div class="tiny muted">Вопрос модели, ${ev.q_len} байт, плата ${ev.fee}</div><pre>${esc(ev.q)}</pre>`;
+  } else if (ev.type === "answer") {
+    const el = turnEl(ev.contour, ev.n), mv = el.querySelector(".move");
+    const silent = ev.move === "молчит", unparsed = ev.move === "не разобран";
+    mv.textContent = silent ? "модель молчит (−7)" : (ev.line || "(пустой ответ)") + (unparsed ? " — не ход" : "");
+    mv.classList.toggle("bad", silent || unparsed);
+    el.querySelector(".secs").textContent = `${ev.seconds} с`;
+    if (!silent) el.querySelector(".full").insertAdjacentHTML("beforeend",
+      `<div class="tiny muted">Ответ модели — слова, прав не дают</div><pre class="model">${esc(ev.a)}</pre>`);
+  } else if (ev.type === "agent") {
+    const el = turnEl(ev.contour, ev.n);
+    el.querySelector(".effs").insertAdjacentHTML("beforeend", `<div class="eff agent">агент: ${esc(ev.text)}</div>`);
+  } else if (ev.type === "effect") {
+    const el = ev.n ? turnEl(ev.contour, ev.n) : null;
+    const box = el ? el.querySelector(".effs") : $("t" + ev.contour);
+    if (box) box.insertAdjacentHTML("beforeend", `<div class="eff ${ev.bad ? "bad" : ""}">→ ${esc(ev.text)}</div>`);
+  }
+}
+
+async function tick() {
+  let r;
+  try { r = await api("/api/run?since=" + since); } catch (e) { return; }
+  if (r.state === "нет") return;
+  clockSkew = Date.now() / 1000 - r.now;
+  activity = r.activity;
+  for (const ev of r.events) apply(ev);
+  since = r.next;
+  for (const i of [1, 2]) if ($("st" + i)) $("st" + i).innerHTML = statsLine(r.tally[i], r.settings.budget);
+  const errs = r.notes.filter((n) => /не ответило|Сбой|не запустить/.test(n));
+  const info = r.notes.filter((n) => !errs.includes(n));
+  banner(errs.join("\n")); note(info.join("\n"));
+  if (["готово", "остановлено", "ошибка"].includes(r.state)) finish(r);
+}
+
+function finish(r) {
+  clearInterval(poll); running = false;
+  $("btnStop").disabled = true; $("btnAgain").classList.remove("hidden");
+  activity = {text: r.state === "готово" ? "Готово" : r.state === "остановлено" ? "Остановлено" : "Ошибка", since: 0};
+  const v = $("verdict"); v.classList.remove("hidden");
+  const zip = `<p class="hint"><a href="/api/zip/${r.id}?t=${TOKEN}">Скачать журнал и итоги (zip)</a></p>`;
+  if (r.state !== "готово" || !r.result || r.result.stopped) {
+    v.innerHTML = `<div class="verdict-head bad">${r.state === "остановлено" ? "Остановлено. Законы не проверялись: выгрузки исполнителя нет, журнал до остановки — в архиве." : "Прогон не дошёл до конца."}</div>` + (r.state === "ошибка" ? "" : zip);
+    return;
+  }
+  const res = r.result, ok = res.broken.length === 0;
+  const applicable = res.laws_total - res.laws_na;
+  const head = ok ? `Законы держатся: ${res.laws_holds} из ${applicable} применимых`
+                  : `Нарушено: ${res.broken.join(", ")}`;
+  const groups = res.groups.map((g) => `
+    <div class="group"><div class="gh" onclick="this.nextElementSibling.classList.toggle('hidden')">
+      <span class="dot ${g.status === "не применим" ? "na" : g.status}"></span><span>${esc(g.title)}</span>
+      <span class="muted tiny" style="margin-left:auto">${g.items.filter((x) => x.status === "держится").length} из ${g.items.length}</span></div>
+      <div class="hidden">${g.items.map((x) => `<div class="law"><span class="dot ${x.status === "не применим" ? "na" : x.status}" style="margin-top:5px"></span>
+        <span class="k">${esc(x.key)}</span><span>${esc(x.text)}${x.status !== "держится" ? ` <span class="d">— ${esc(x.status)}${x.detail ? ": " + esc(x.detail) : ""}</span>` : ""}</span></div>`).join("")}</div></div>`).join("");
+  const audit = res.audit.length ? `Аудит процесса исполнителя: ${esc(res.audit.join("; "))}` :
+    "Аудит процесса исполнителя: чисто — ни файлов вне своей папки, ни сети, ни процессов.";
+  const seal = res.seal ? "Печать сети стояла на исполнителе и процессах модели." :
+    "Печати сети не было: " + (res.net === "netns" ? "сеть у процесса модели отнята пустым сетевым пространством." : "—");
+  const tokens = res.tokens ? `<p class="hint">Токены облака (со слов поставщика): вопрос ${res.tokens.in}, ответ ${res.tokens.out}.</p>` : "";
+  v.innerHTML = `<div class="verdict-head ${ok ? "ok" : "bad"}">${head}</div>
+    <p class="hint">${audit}<br>${seal}</p>${res.open_note ? `<p class="hint">${esc(res.open_note)}</p>` : ""}${tokens}
+    ${groups}<p class="hint tiny">Нажми на группу — откроются законы. «Не применим» — в этом прогоне нечему было его задеть.</p>${zip}`;
+}
+
+function again() {
+  $("setup").classList.remove("hidden"); $("live").classList.add("hidden"); $("verdict").classList.add("hidden");
+  $("btnAgain").classList.add("hidden"); banner(""); note(""); activity = {text: "", since: 0};
+  api("/api/info").then((i) => { INFO = i; renderLocal(); checkReady(); });
+}
+
+// Строка хода меняется, пока идёт шаг: застывшая строка с многоточием
+// читается человеком как «зависло», даже когда работа идёт.
+setInterval(() => {
+  if (!activity.text) { $("progress").textContent = ""; return; }
+  const s = activity.since ? Math.max(0, Math.round(Date.now() / 1000 - clockSkew - activity.since)) : null;
+  $("progress").textContent = running && s !== null ? `${activity.text} · ${s} с` : activity.text;
+}, 250);
+
+async function init() {
+  try { INFO = await api("/api/info"); } catch (e) { banner("Экран не получил сведений: " + e.message); return; }
+  $("preset").innerHTML = INFO.presets.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
+  $("preset").onchange = onPreset; onPreset();
+  for (const b of $("seg").children) b.onclick = () => setContour(b.dataset.c);
+  renderLocal(); renderChips(); pickScenario(Object.keys(INFO.scenarios)[0]);
+  $("words").oninput = () => { scenario = null; for (const b of document.querySelectorAll("[data-s]")) b.classList.remove("on"); countWords(); };
+  for (const id of ["base", "model", "key"]) $(id).oninput = checkReady;
+  $("btnModels").onclick = listModels; $("btnCheck").onclick = checkCloud;
+  $("btnDetails").onclick = () => { const d = $("details"); d.classList.toggle("hidden");
+    $("btnDetails").textContent = d.classList.contains("hidden") ? "Подробно ▾" : "Подробно ▴"; };
+  $("btnStart").onclick = start; $("btnStop").onclick = stop; $("btnAgain").onclick = again;
+  $("envInfo").textContent = `${INFO.platform}. Агент собран: ${INFO.agent || "нет"}. Прогоны лежат в ${INFO.runs_dir}.`;
+  setContour(INFO.closed_ok ? "сомкнутый" : "разомкнутый");
+  const r = await api("/api/run?since=0");
+  if (r.state && r.state !== "нет" && !["готово", "остановлено", "ошибка"].includes(r.state)) {
+    // прогон уже идёт (страницу открыли заново)
+    running = true; $("setup").classList.add("hidden"); $("live").classList.remove("hidden");
+    $("btnStart").disabled = true; $("btnStop").disabled = false;
+    const two = r.settings.second === "такой же";
+    $("contours").className = "contours" + (two ? " two" : "");
+    $("contours").innerHTML = [1, 2].filter((i) => i === 1 || two).map((i) =>
+      `<div class="card"><div class="label">Агент ${i}</div><div class="stats" id="st${i}"></div><div id="t${i}"></div></div>`).join("");
+    poll = setInterval(tick, 700); tick();
+  }
+}
+init();
+</script>
+</body>
+</html>

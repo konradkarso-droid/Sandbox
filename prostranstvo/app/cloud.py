@@ -1,0 +1,188 @@
+"""Облачная модель: два протокола — OpenAI-совместимый и Anthropic.
+
+Устройство — docs/pesochnitsa_specifikatsiya.md, §5. Этот файл живёт в
+процессе ведущего (экрана), у которого есть сеть; в процессы исполнителя и
+модели он не попадает, и ключ тоже.
+
+Вопрос уходит одним сообщением пользователя, как есть, без системной
+подсказки: что спросить, решает агент. Температура 0. Беседы на стороне
+поставщика нет — каждый вопрос самостоятелен.
+
+Чего клиент не умеет:
+- он не гарантирует, что поставщик не хранит вопросы и не связывает их
+  между собой: это обещание поставщика, а не свойство среды;
+- ответ облака не обязан быть одинаковым на одинаковый вопрос даже при
+  температуре 0;
+- байты вопроса, которые не складываются в UTF-8 (агент может спросить
+  модель сырым вызовом о любой своей памяти), уходят знаком «�»: облако
+  принимает только текст. Уходит при этом не больше, чем записано в
+  журнале;
+- токены и деньги считает поставщик, клиент лишь показывает его числа.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+import urllib.error
+import urllib.request
+from dataclasses import dataclass, field
+
+# Готовые адреса. Имя модели человек пишет сам или берёт из списка
+# поставщика (list_models): имена моделей меняются чаще, чем этот файл.
+PRESETS = [
+    {"id": "openrouter", "name": "OpenRouter", "kind": "openai", "base": "https://openrouter.ai/api/v1",
+     "key_env": "OPENROUTER_API_KEY"},
+    {"id": "anthropic", "name": "Anthropic", "kind": "anthropic", "base": "https://api.anthropic.com/v1",
+     "key_env": "ANTHROPIC_API_KEY"},
+    {"id": "openai", "name": "OpenAI", "kind": "openai", "base": "https://api.openai.com/v1",
+     "key_env": "OPENAI_API_KEY"},
+    {"id": "deepseek", "name": "DeepSeek", "kind": "openai", "base": "https://api.deepseek.com/v1",
+     "key_env": "DEEPSEEK_API_KEY"},
+    {"id": "groq", "name": "Groq", "kind": "openai", "base": "https://api.groq.com/openai/v1",
+     "key_env": "GROQ_API_KEY"},
+    {"id": "mistral", "name": "Mistral", "kind": "openai", "base": "https://api.mistral.ai/v1",
+     "key_env": "MISTRAL_API_KEY"},
+    {"id": "gemini", "name": "Google Gemini", "kind": "openai",
+     "base": "https://generativelanguage.googleapis.com/v1beta/openai", "key_env": "GEMINI_API_KEY"},
+    {"id": "ollama", "name": "Ollama на этом компьютере", "kind": "openai", "base": "http://127.0.0.1:11434/v1",
+     "key_env": ""},
+    {"id": "lmstudio", "name": "LM Studio на этом компьютере", "kind": "openai", "base": "http://127.0.0.1:1234/v1",
+     "key_env": ""},
+    {"id": "other", "name": "Другой (OpenAI-совместимый)", "kind": "openai", "base": "", "key_env": ""},
+]
+
+ANTHROPIC_VERSION = "2023-06-01"
+RETRY_CODES = (408, 409, 425, 429, 500, 502, 503, 504, 529)
+
+
+class CloudError(Exception):
+    """Облако не ответило. Текст — для человека."""
+
+
+@dataclass
+class Cloud:
+    kind: str                      # "openai" | "anthropic"
+    base: str                      # адрес без косой черты в конце
+    model: str
+    key: str = field(default="", repr=False)
+    max_tokens: int = 512
+    # Подстройка под модели, которые не принимают обычные поля (выясняется
+    # первым отказом 400 и запоминается до конца прогона).
+    _tokens_field: str = "max_tokens"
+    _send_temperature: bool = True
+
+    def __post_init__(self):
+        self.base = self.base.rstrip("/")
+        if self.kind not in ("openai", "anthropic"):
+            raise ValueError("протокол — openai или anthropic")
+
+
+def _human(code: int, body: str) -> str:
+    what = {400: "запрос не принят", 401: "ключ не принят", 402: "на счёте у поставщика нет денег",
+            403: "доступ запрещён", 404: "нет такой модели или адреса", 408: "поставщик не дождался",
+            413: "вопрос слишком длинный для поставщика", 429: "поставщик просит подождать",
+            500: "ошибка у поставщика", 502: "ошибка у поставщика", 503: "поставщик недоступен",
+            529: "поставщик перегружен"}.get(code, "ошибка")
+    short = " ".join(body.split())[:300]
+    return f"{what} ({code}){': ' + short if short else ''}"
+
+
+def _request(c: Cloud, method: str, path: str, body: dict | None, timeout: float) -> dict:
+    headers = {"content-type": "application/json", "user-agent": "prostranstvo-sandbox"}
+    if c.kind == "anthropic":
+        headers["anthropic-version"] = ANTHROPIC_VERSION
+        if c.key:
+            headers["x-api-key"] = c.key
+    elif c.key:
+        headers["authorization"] = f"Bearer {c.key}"
+    data = json.dumps(body, ensure_ascii=False).encode() if body is not None else None
+    req = urllib.request.Request(c.base + path, data=data, method=method, headers=headers)
+    # Своя машина (Ollama, LM Studio) — мимо прокси из окружения: прокси
+    # 127.0.0.1 пользователя не знает.
+    local = c.base.startswith(("http://127.0.0.1", "http://localhost"))
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if local else urllib.request.build_opener()
+    with opener.open(req, timeout=max(1.0, timeout)) as r:
+        return json.loads(r.read().decode("utf-8", "replace"))
+
+
+def _body(c: Cloud, question: str) -> tuple[str, dict]:
+    msg = [{"role": "user", "content": question}]
+    if c.kind == "anthropic":
+        b = {"model": c.model, "max_tokens": c.max_tokens, "messages": msg}
+        if c._send_temperature:
+            b["temperature"] = 0
+        return "/messages", b
+    b = {"model": c.model, "messages": msg, c._tokens_field: c.max_tokens}
+    if c._send_temperature:
+        b["temperature"] = 0
+    return "/chat/completions", b
+
+
+def _text(c: Cloud, r: dict) -> tuple[str, dict]:
+    if c.kind == "anthropic":
+        text = "".join(x.get("text", "") for x in r.get("content", []) if x.get("type") == "text")
+        u = r.get("usage") or {}
+        return text, {"in": u.get("input_tokens", 0), "out": u.get("output_tokens", 0)}
+    ch = (r.get("choices") or [{}])[0]
+    text = ((ch.get("message") or {}).get("content")) or ""
+    if isinstance(text, list):               # некоторые отдают куски
+        text = "".join(x.get("text", "") for x in text if isinstance(x, dict))
+    u = r.get("usage") or {}
+    return text, {"in": u.get("prompt_tokens", 0), "out": u.get("completion_tokens", 0)}
+
+
+def ask(c: Cloud, question: str, deadline: float) -> tuple[str, dict]:
+    """Ответ облака на один вопрос. deadline — момент time.monotonic(), к
+    которому ответ нужен: повторы при 429 и 5xx — только до него. Не вышло —
+    CloudError с причиной для человека."""
+    pause, last = 1.0, "не было ни одной попытки"
+    adapted = False
+    while True:
+        left = deadline - time.monotonic()
+        if left <= 0.5:
+            raise CloudError(f"срок ответа вышел; последняя причина: {last}")
+        path, body = _body(c, question)
+        try:
+            return _text(c, _request(c, "POST", path, body, left))
+        except urllib.error.HTTPError as e:
+            text = e.read().decode("utf-8", "replace") if e.fp else ""
+            low = text.lower()
+            if e.code == 400 and not adapted:
+                # Модели с рассуждением у OpenAI просят другое поле для предела
+                # и не принимают температуру. Один раз подстроиться — не повтор.
+                if c.kind == "openai" and "max_completion_tokens" in low:
+                    c._tokens_field, adapted = "max_completion_tokens", True
+                    continue
+                if "temperature" in low:
+                    c._send_temperature, adapted = False, True
+                    continue
+            last = _human(e.code, text)
+            if e.code not in RETRY_CODES:
+                raise CloudError(last)
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            last = f"нет связи: {getattr(e, 'reason', e)}"
+        except (ValueError, KeyError, IndexError) as e:
+            raise CloudError(f"непонятный ответ поставщика: {e}")
+        time.sleep(min(pause, max(0.0, deadline - time.monotonic() - 0.5)))
+        pause = min(pause * 2, 8.0)
+
+
+def list_models(c: Cloud, timeout: float = 20.0) -> list[str]:
+    """Имена моделей у поставщика (GET /models). CloudError — не вышло."""
+    try:
+        r = _request(c, "GET", "/models", None, timeout)
+    except urllib.error.HTTPError as e:
+        raise CloudError(_human(e.code, e.read().decode("utf-8", "replace") if e.fp else ""))
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise CloudError(f"нет связи: {getattr(e, 'reason', e)}")
+    items = r.get("data") or r.get("models") or []
+    names = [x.get("id") or x.get("name") for x in items if isinstance(x, dict)]
+    return sorted(n for n in names if n)
+
+
+def check(c: Cloud, timeout: float = 30.0) -> tuple[str, dict]:
+    """Проверка связи мимо песочницы: короткий вопрос. Возвращает ответ и
+    токены; CloudError — с причиной. В журнал среды не попадает."""
+    probe = Cloud(c.kind, c.base, c.model, c.key, max_tokens=16)
+    return ask(probe, "Ответь одним словом: ГОТОВ", time.monotonic() + timeout)

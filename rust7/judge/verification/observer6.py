@@ -35,6 +35,9 @@ LAWS6 = {
     "П1р": "агент, от которого ждут всё (честный; с ошибками при запасе): все части приняты в пределах бюджета",
 }
 CODES = {-1, -2, -3, -4, -5, -6}
+# −7 «модель молчит» (контракт шага 7, §17) — код только для запуска с моделью:
+# без режима модели его быть не может, и он остаётся вне перечня.
+CODE_SILENT = -7
 UNIT = 64
 
 
@@ -153,7 +156,8 @@ def check(run: dict) -> dict[str, tuple[str, str]]:
             elif r.get("kind") == "отказ" and r.get("why") == "ответ неверен":
                 wrong.add((r["task"], r["part"]))
         if c is not None:
-            odd = sorted(int(k) for k in c.get("refusals", {}) if int(k) not in CODES)
+            codes = CODES | ({CODE_SILENT} if run["cfg"].get("model") else set())
+            odd = sorted(int(k) for k in c.get("refusals", {}) if int(k) not in codes)
             if odd:
                 bad["П2к"].append(f"контур {i}: коды отказов вне перечня {odd[:5]}")
             if run.get("expect_all"):

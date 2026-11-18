@@ -59,6 +59,16 @@ FEE_RECORDS = {"чтение": 1, "запись": 1, "резольвер: имя
 LAW_KEYS = tuple(LAWS)
 
 
+def cost(r: dict) -> int:
+    """Сколько бюджета списала запись журнала, кроме записей «действие»
+    (их плата — поле charge у записей субъектов а{i} и п{i}). Расход контура
+    по журналу = сумма charge его действий + сумма cost по его записям
+    (закон И1р). Одно правило на всех: им же считает остаток экран песочницы."""
+    return {"работа": r.get("price", 0), "списание": r.get("price", 0), "отказ": r.get("charge", 0),
+            "отказ ворот": r.get("charge", 0), "выброс": r.get("price", 0),
+            "проверка": r.get("price", 0) if r.get("payer") == "агент" else 0}.get(r["kind"], 0)
+
+
 @lru_cache(maxsize=None)
 def w_e(graph: str, levels: int, memory: int) -> int | None:
     return fast(World(graph, levels, memory)).w_e
@@ -135,9 +145,7 @@ def check(run: dict) -> dict[str, tuple[str, str]]:
         # И1р, И5р, И16р — деньги
         spent = sum(r.get("charge", 0) for r in acts)
         for r in mine:
-            amount = {"работа": r.get("price", 0), "списание": r.get("price", 0), "отказ": r.get("charge", 0),
-                      "отказ ворот": r.get("charge", 0), "выброс": r.get("price", 0),
-                      "проверка": r.get("price", 0) if r.get("payer") == "агент" else 0}.get(r["kind"], 0)
+            amount = cost(r)
             if amount < 0:
                 bad["И16р"].append(f"контур {i}: «{r['kind']}» уменьшила расход на {-amount}")
             spent += amount

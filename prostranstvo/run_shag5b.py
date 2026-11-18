@@ -53,10 +53,13 @@ def _snapshot(wd: Path) -> dict:
 
 
 def one(driver, defect: str | None, program: str, mods: dict[int, str], cfg: dict,
-        fault=None, recover_fault=None, rounds: int = ROUNDS, checker=None, extra: dict | None = None) -> dict:
+        fault=None, recover_fault=None, rounds: int = ROUNDS, checker=None, extra: dict | None = None,
+        words: str | None = None) -> dict:
     """Один запуск. Сбой по инъекции: новый процесс, восстановление по
     файлам, агенты загружаются заново, запуски продолжаются. checker —
-    наблюдатель (по умолчанию шага 5б); extra — поля для него."""
+    наблюдатель (по умолчанию шага 5б); extra — поля для него; words — слова
+    человека во вход обоих контуров (по умолчанию WORDS)."""
+    words = WORDS if words is None else words
     f0 = len(driver.failures)
     status, wd = driver.call("new", cfg, fault)
     if status != "ok":
@@ -77,14 +80,14 @@ def one(driver, defect: str | None, program: str, mods: dict[int, str], cfg: dic
             snaps.append(_snapshot(wd))
         for i in (1, 2):
             driver.call("load", i, mods[i])
-            driver.call("say", i, WORDS)
+            driver.call("say", i, words)
 
     for i in (1, 2):
         st, v = driver.call("load", i, mods[i])
         loads[i] = tuple(v) if st == "ok" else (st, str(v)[-200:])
         snaps.append(_snapshot(wd))
     for i in (1, 2):
-        driver.call("say", i, WORDS)
+        driver.call("say", i, words)
     for _ in range(rounds):
         for i in (1, 2):
             st, v = driver.call("run", i)

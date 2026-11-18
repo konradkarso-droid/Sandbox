@@ -10,10 +10,31 @@
 Эта ветка отдельна от кода Android-агента в `main` и не делит с ним
 историю.
 
+## Быстрый старт
+
+Linux (или Windows через WSL2), Python 3.11+, git:
+
+```
+git clone -b prostranstvo https://github.com/konradkarso-droid/agent-mobile prostranstvo
+cd prostranstvo/prostranstvo
+python3 start.py
+```
+
+Откроется экран в браузере. Переключатель контура: **сомкнутый** — модель
+на этом компьютере (демо без модели или файл GGUF), сеть у песочницы
+отнята системой; **разомкнутый** — облачная модель по ключу (OpenRouter,
+Anthropic, OpenAI, DeepSeek, Groq, Mistral, Gemini, Ollama и другие с
+протоколом OpenAI). Пишешь агенту слова — «Пуск» — смотришь ходы и в
+конце законы среды, проверенные по журналу.
+
+Подробно — [как запустить](prostranstvo/docs/pesochnitsa_kak_zapustit.md);
+устройство и гарантии — [спецификация песочницы](prostranstvo/docs/pesochnitsa_specifikatsiya.md).
+
 ## Что здесь
 
 | Папка | Что |
 |---|---|
+| `prostranstvo/start.py`, `prostranstvo/app` | песочница «из коробки»: запуск, экран, печать сети, связь с облаком |
 | `prostranstvo/env`, `prostranstvo/sandbox`, `prostranstvo/core` | среда и исполнитель (Python) |
 | `prostranstvo/verification` | наблюдатели законов: проверка журналов |
 | `prostranstvo/experiments` | опыты шагов 1–9б |
@@ -25,8 +46,8 @@
 | `rust7/judge` | сверка двух реализаций |
 
 Порядок чтения: `prostranstvo/docs/teoriya_sredy_v0.5.md`, затем
-спецификации и отчёты по шагам — `shag1_…` … `shag9b_…`. Последний шаг —
-калибровка на телефоне: `shag9b_kalibr_otchet.md`.
+спецификации и отчёты по шагам — `shag1_…` … `shag9b_…`. Итог шага 9б —
+`shag9b_otchet.md`; песочница «из коробки» — `pesochnitsa_specifikatsiya.md`.
 
 ## Как запустить тесты
 

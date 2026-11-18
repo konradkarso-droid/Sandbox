@@ -24,7 +24,13 @@
                   ответ и здесь зависит только от вопроса;
   --gguf ФАЙЛ     живая модель через llama-cpp-python, жадный выбор слов,
                   без кеша между вопросами;
-  --probe-net     прибор: попытаться открыть соединение и сказать, вышло ли.
+  --probe-net     прибор: попытаться открыть соединение и сказать, вышло ли;
+  --relay ПУТЬ    передатчик разомкнутого контура (docs/pesochnitsa_specifikatsiya.md,
+                  §2, §5): строку вопроса передаёт как есть в местный канал
+                  ПУТЬ (AF_UNIX), строку ответа — обратно. Сам ничего не
+                  считает и сети не знает: к облаку ходит связь в ведущем.
+                  Связь закрыла канал — процесс выходит, и исполнитель
+                  получает молчание (−7), как от умершей модели.
 
 Чего процесс не умеет: он не проверяет сам себя на инертность — это делает
 прибор снаружи (strace, --probe-net); он не ограничивает время ответа —
@@ -216,10 +222,34 @@ def probe_net() -> str:
         return f"сеть: нет ({e.__class__.__name__}: {e.strerror or e})"
 
 
+def relay(path: str) -> None:
+    """Передатчик: по строке туда, по строке обратно, байты не трогает.
+    Ответ не разбирается и не проверяется: его длину и вид проверяет
+    исполнитель (model9.ModelLink.ask)."""
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(path)
+    peer = s.makefile("rwb")
+    out = sys.stdout.buffer
+    for line in sys.stdin.buffer:
+        try:
+            peer.write(line if line.endswith(b"\n") else line + b"\n")
+            peer.flush()
+            back = peer.readline()
+        except OSError:
+            return                      # связь закрыла канал: молчание
+        if not back.endswith(b"\n"):
+            return
+        out.write(back)
+        out.flush()
+
+
 def main() -> None:
     args = sys.argv[1:]
     if args[:1] == ["--probe-net"]:
         print(probe_net(), flush=True)
+        return
+    if args[:1] == ["--relay"] and len(args) > 1:
+        relay(args[1])
         return
     if args[:1] == ["--stub"]:
         answer = stub
@@ -228,7 +258,7 @@ def main() -> None:
     elif args[:1] == ["--gguf"] and len(args) > 1:
         answer = live(args[1])
     else:
-        sys.exit("режим: --stub | --script ФАЙЛ | --gguf ФАЙЛ | --probe-net")
+        sys.exit("режим: --stub | --script ФАЙЛ | --gguf ФАЙЛ | --relay ПУТЬ | --probe-net")
     out = sys.stdout.buffer
     for line in sys.stdin.buffer:
         req = json.loads(line)

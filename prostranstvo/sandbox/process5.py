@@ -224,6 +224,10 @@ class Driver:
     """Недоверенный ведущий. Запускает исполнитель в отдельном процессе и
     говорит с ним только сообщениями."""
 
+    # Точка входа процесса исполнителя. Подменяется только ради печати сети
+    # (app/seal.py: печать, затем тот же _main); сам разбор команд один.
+    entry = None
+
     def __init__(self, root: Path, defects: frozenset[str] = frozenset(), limits: dict | None = None,
                  kind: str = "5", model: dict | None = None, timeout: float = 120.0):
         self.root, self.defects, self.limits, self.kind, self.model = root, defects, limits, kind, model
@@ -237,7 +241,7 @@ class Driver:
     def _start(self) -> None:
         ctx = mp.get_context("spawn")
         self.conn, child = ctx.Pipe()
-        self.proc = ctx.Process(target=_main, args=(child, str(self.root), sorted(self.defects), self.limits,
+        self.proc = ctx.Process(target=self.entry or _main, args=(child, str(self.root), sorted(self.defects), self.limits,
                                                     self.kind, self.model), daemon=True)
         self.proc.start()
         child.close()
