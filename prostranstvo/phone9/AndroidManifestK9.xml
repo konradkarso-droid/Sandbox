@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Стенд калибровки шага 9б. Разрешений нет: ни сети, ни чужих файлов.
+     Модель владелец даёт системным окном выбора файла. Отдельное
+     приложение рядом с малым стендом: ставится без удаления того. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="ru.prostranstvo.kalibr9"
+    android:versionCode="1"
+    android:versionName="1.0 (калибровка 9б)">
+
+    <application
+        android:label="Калибровка 9б"
+        android:allowBackup="false"
+        android:extractNativeLibs="true">
+        <activity
+            android:name="stend.android.MainActivityK9"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

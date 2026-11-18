@@ -1,0 +1,22 @@
+# Шаг 2 «Теории среды»: реализация среды учёта, варианты M0, M1, M2.
+# Все числа объявлены, а не подобраны (docs/shag2_specifikatsiya.md, §7).
+
+model: "реализация среды учёта"
+task: "результат без списания; сохранение при параллельности, сбоях и перезапусках"
+hypotheses: ["У1", "У2", "У3", "У4", "У5", "Ц1"]
+variants: ["M0", "M1", "M2"]
+
+# Сверка реализации с моделью шага 1 (вариант M1).
+conformance:
+  configs:
+    - {budget: 4, price: 2, fail_price: 1, max_helpers: 1}
+    - {budget: 6, price: 2, fail_price: 0, max_helpers: 2}
+    - {budget: 3, price: 1, fail_price: 1, max_helpers: 2}
+    - {budget: 5, price: 3, fail_price: 1, max_helpers: 1}
+  sequences: 100
+  steps: 60
+  defect_sequences: 20          # на первой конфигурации, для каждой порчи
+
+o1: {seeds: 30, defect_seeds: 10}
+o2: {seeds: 30, defect_seeds: 10, steps: 80}
+o3: {k: [2, 4, 8], ways: ["пакет", "подряд", "на 2", "на 4"]}

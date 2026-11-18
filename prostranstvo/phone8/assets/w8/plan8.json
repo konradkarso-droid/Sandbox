@@ -1,0 +1,2122 @@
+{
+ "cfg": {
+  "budget": 1000000,
+  "graph": "M3т",
+  "levels": 6,
+  "memory": 4
+ },
+ "kinds": [
+  "счёт",
+  "память",
+  "ворота",
+  "фиксация",
+  "работа узла"
+ ],
+ "work": {
+  "счёт": [
+   {
+    "file": "schet_1250.wasm",
+    "n": 1250
+   },
+   {
+    "file": "schet_2500.wasm",
+    "n": 2500
+   },
+   {
+    "file": "schet_5000.wasm",
+    "n": 5000
+   },
+   {
+    "file": "schet_10000.wasm",
+    "n": 10000
+   },
+   {
+    "file": "schet_20000.wasm",
+    "n": 20000
+   },
+   {
+    "file": "schet_40000.wasm",
+    "n": 40000
+   },
+   {
+    "file": "schet_80000.wasm",
+    "n": 80000
+   },
+   {
+    "file": "schet_160000.wasm",
+    "n": 160000
+   }
+  ],
+  "память": [
+   {
+    "file": "pamyat_875.wasm",
+    "n": 875
+   },
+   {
+    "file": "pamyat_1750.wasm",
+    "n": 1750
+   },
+   {
+    "file": "pamyat_3500.wasm",
+    "n": 3500
+   },
+   {
+    "file": "pamyat_7000.wasm",
+    "n": 7000
+   },
+   {
+    "file": "pamyat_14000.wasm",
+    "n": 14000
+   },
+   {
+    "file": "pamyat_28000.wasm",
+    "n": 28000
+   },
+   {
+    "file": "pamyat_56000.wasm",
+    "n": 56000
+   },
+   {
+    "file": "pamyat_112000.wasm",
+    "n": 112000
+   }
+  ],
+  "ворота": [
+   {
+    "file": "vorota_2.wasm",
+    "n": 2
+   },
+   {
+    "file": "vorota_4.wasm",
+    "n": 4
+   },
+   {
+    "file": "vorota_8.wasm",
+    "n": 8
+   },
+   {
+    "file": "vorota_16.wasm",
+    "n": 16
+   },
+   {
+    "file": "vorota_32.wasm",
+    "n": 32
+   },
+   {
+    "file": "vorota_64.wasm",
+    "n": 64
+   },
+   {
+    "file": "vorota_128.wasm",
+    "n": 128
+   },
+   {
+    "file": "vorota_256.wasm",
+    "n": 256
+   }
+  ],
+  "фиксация": [
+   {
+    "file": "fiks_2.wasm",
+    "n": 2
+   },
+   {
+    "file": "fiks_4.wasm",
+    "n": 4
+   },
+   {
+    "file": "fiks_8.wasm",
+    "n": 8
+   },
+   {
+    "file": "fiks_16.wasm",
+    "n": 16
+   },
+   {
+    "file": "fiks_32.wasm",
+    "n": 32
+   },
+   {
+    "file": "fiks_64.wasm",
+    "n": 64
+   },
+   {
+    "file": "fiks_128.wasm",
+    "n": 128
+   },
+   {
+    "file": "fiks_256.wasm",
+    "n": 256
+   }
+  ],
+  "работа узла": [
+   {
+    "file": "uzly_12.wasm",
+    "n": 12
+   },
+   {
+    "file": "uzly_23.wasm",
+    "n": 23
+   },
+   {
+    "file": "uzly_34.wasm",
+    "n": 34
+   },
+   {
+    "file": "uzly_46.wasm",
+    "n": 46
+   },
+   {
+    "file": "uzly_58.wasm",
+    "n": 58
+   },
+   {
+    "file": "uzly_69.wasm",
+    "n": 69
+   },
+   {
+    "file": "uzly_80.wasm",
+    "n": 80
+   },
+   {
+    "file": "uzly_92.wasm",
+    "n": 92
+   }
+  ]
+ },
+ "channels": [
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 0,
+   "file": "k_vremya2_0.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 2 уровня",
+   "sent": 1,
+   "file": "k_vremya2_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 1,
+   "file": "k_vremya4_1.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 0,
+   "file": "k_vremya4_0.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 2,
+   "file": "k_vremya4_2.wasm"
+  },
+  {
+   "channel": "время, 4 уровня",
+   "sent": 3,
+   "file": "k_vremya4_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 3,
+   "file": "k_ishod_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 3,
+   "file": "k_ishod_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 0,
+   "file": "k_ishod_0.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 0,
+   "file": "k_ishod_0.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 0,
+   "file": "k_ishod_0.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 0,
+   "file": "k_ishod_0.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 0,
+   "file": "k_ishod_0.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 0,
+   "file": "k_ishod_0.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 3,
+   "file": "k_ishod_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 0,
+   "file": "k_ishod_0.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 0,
+   "file": "k_ishod_0.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 3,
+   "file": "k_ishod_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 3,
+   "file": "k_ishod_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 0,
+   "file": "k_ishod_0.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 3,
+   "file": "k_ishod_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 3,
+   "file": "k_ishod_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 3,
+   "file": "k_ishod_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 3,
+   "file": "k_ishod_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 3,
+   "file": "k_ishod_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 3,
+   "file": "k_ishod_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 3,
+   "file": "k_ishod_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 1,
+   "file": "k_ishod_1.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 3,
+   "file": "k_ishod_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 3,
+   "file": "k_ishod_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 0,
+   "file": "k_ishod_0.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 3,
+   "file": "k_ishod_3.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 0,
+   "file": "k_ishod_0.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 0,
+   "file": "k_ishod_0.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "исход",
+   "sent": 2,
+   "file": "k_ishod_2.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 1,
+   "file": "k_razmer_1.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  },
+  {
+   "channel": "размер вывода",
+   "sent": 0,
+   "file": "k_razmer_0.wasm"
+  }
+ ],
+ "seed": 8,
+ "channel_levels": {
+  "время, 2 уровня": {
+   "0": 10000,
+   "1": 80000
+  },
+  "время, 4 уровня": {
+   "0": 10000,
+   "1": 40000,
+   "2": 80000,
+   "3": 144000
+  }
+ }
+}

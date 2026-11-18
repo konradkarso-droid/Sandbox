@@ -1,0 +1,19 @@
+[package]
+name = "executor7"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "executor7"
+path = "src/main.rs"
+
+[dependencies]
+wasmi = "2"
+sha2 = "0.10"
+base64 = "0.22"
+serde_json = "1"
+getrandom = "0.2"
+
+[profile.release]
+opt-level = 3

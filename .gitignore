@@ -1,0 +1,7 @@
+*.wasm
+target/
+__pycache__/
+.pytest_cache/
+*.gguf
+*.apk
+*.jks
