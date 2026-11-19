@@ -24,6 +24,8 @@ app/
   bridge.py                    связь разомкнутого контура: местный канал ↔ облако (ключ только здесь)
   server.py, ui/index.html     экран: только 127.0.0.1, метка в ссылке; цвета приложения агента
   install_check.json           записанные ходы для проверки установки (serve.py --script)
+experiments/agents9/agent9.c   встроенный агент; ключ сборки LANG_EN — правила по-английски
+experiments/agents_own/        пример своего агента (ask_once.wat — без сборки, ask_once.c)
 model9/serve.py --relay        передатчик: процесс модели разомкнутого контура без своей сети
 ```
 
@@ -74,6 +76,8 @@ docs/
   pesochnitsa_specifikatsiya.md   песочница «из коробки»: контуры, печать сети, связь с облаком, проверки
   pesochnitsa_kak_zapustit.md     песочница: как пользоваться
   sandbox_guide_en.md             the sandbox: how to use it (English)
+  svoy_agent.md                   свой агент: требования, ресурсы, коды, пример
+  own_agent_en.md                 your own agent (English)
   handover_2026-11-13.md       хендовер окна 13.11: шаги 1–9
   handover_promahi_2026-11-13.md  промахи Клода за окно 13.11 и их сведение
   handover_2026-11-14.md       хендовер окна 14.11 — последний: что сделано, где что лежит, что дальше

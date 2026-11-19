@@ -200,7 +200,26 @@
     </div>
 
     <div class="card">
-      <h2><span class="step">2</span><span data-t="what_h"></span></h2>
+      <h2><span class="step">2</span><span data-t="agent_h"></span></h2>
+      <label class="choice" id="chBuiltin"><input type="radio" name="ag" value="builtin" checked>
+        <div><b data-t="builtin"></b><span data-t="builtin_about"></span></div></label>
+      <div id="builtinBox" style="margin-left:34px">
+        <label class="f"><span data-t="rules_lang"></span>
+          <select id="agentLang"><option value="ru" data-t="rules_ru"></option><option value="en" data-t="rules_en"></option></select></label>
+      </div>
+      <label class="choice" id="chOwn"><input type="radio" name="ag" value="own">
+        <div><b data-t="own_agent"></b><span data-t="own_agent_about"></span></div></label>
+      <div id="ownBox" class="hidden" style="margin-left:34px">
+        <div id="ownList"></div>
+        <div class="row" style="margin-top:8px"><button class="btn2" id="btnUpload" data-t="own_upload"></button>
+          <a class="small" id="ownGuide" target="_blank" rel="noopener" style="align-self:center"></a></div>
+        <input type="file" id="ownFile" accept=".wasm,.wat" class="hidden">
+        <div class="out" id="ownOut"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">3</span><span data-t="what_h"></span></h2>
       <p class="lead" data-t="what_lead"></p>
       <div id="scenarios"></div>
       <label class="f"><span data-t="words_l"></span><textarea id="words"></textarea></label>
@@ -277,6 +296,15 @@ const T = {
   check: "Проверить связь", checking: "Спрашиваю…", check_ok: "Связь есть, модель ответила: «{a}»", check_no: "Нет связи: {e}",
   listing: "Спрашиваю список…", listed: "Моделей: {n}. Начни вводить имя — появятся подсказки.",
   ollama: "Ollama на этом компьютере", lmstudio: "LM Studio на этом компьютере", other: "Другой (протокол OpenAI)",
+  agent_h: "Агент", builtin: "Встроенный агент",
+  builtin_about: "Простая программа: на каждом шаге спрашивает модель, какой ход сделать, и делает его через ворота среды.",
+  rules_lang: "Язык правил, которые агент даёт модели", rules_ru: "русский", rules_en: "английский",
+  own_agent: "Свой агент", own_agent_about: "Твоя программа WebAssembly (.wasm или .wat). Живёт в песочнице вместо встроенного; правила для неё те же.",
+  own_upload: "Загрузить файл", own_guide: "Как написать своего агента", own_list: "Загруженные:", own_none: "Загруженных пока нет.",
+  own_ok: "Модуль принят: {name}. Импорты: {imp}.", own_bad: "Модуль не принят: {e}", own_reading: "Проверяю модуль…",
+  need_own: "загрузи или выбери своего агента",
+  own_moves: "Свой агент сам решает, что значит ответ модели; здесь — вопрос, ответ и что сделала среда.",
+  before_own: "Действия агента без вопроса модели",
   what_h: "Что проверить",
   what_lead: "Выбери, о чём просить агента. Каждый вариант — проверка одного свойства песочницы.",
   own: "Свои слова", own_about: "Напиши агенту что угодно.",
@@ -295,12 +323,12 @@ const T = {
   need_words: "напиши агенту задание", no_local: "локальная модель здесь недоступна",
   how_h: "Как это устроено",
   how_intro: "Песочница — место, где ИИ-агент может действовать, но не может навредить: каждое действие проверяется и оплачивается, а выхода наружу нет по устройству, а не по запрету словами.",
-  how_1: "<span class='em'>Агент</span> — маленькая программа внутри песочницы. Сам он не думает: на каждом шаге он спрашивает <span class='em'>модель</span>, что делать.",
+  how_1: "<span class='em'>Агент</span> — маленькая программа внутри песочницы: встроенная или твоя. Встроенный сам не думает: на каждом шаге он спрашивает <span class='em'>модель</span>, что делать.",
   how_2: "Модель отвечает <span class='em'>ходом</span> — одной строкой из списка: прочитать задачи, решить задачу, вычислить, доставить результат, обратиться к ресурсу напрямую…",
   how_3: "<span class='em'>Ворота среды</span> проверяют, есть ли у агента право на этот ход, и списывают плату из бюджета. Нет права — отказ, но попытка всё равно оплачена.",
   how_4: "Всё ложится в <span class='em'>журнал</span>. Когда агент закончил или бюджет кончился, отдельная программа — <span class='em'>наблюдатель</span> — сверяет журнал с законами среды.",
   how_out: "Наружу ведёт один путь — выход проверенных результатов. Вопрос облачной модели — второй путь: он тоже оплачен и записан.",
-  how_go: "Слева выбери модель и что проверить, затем «Запустить прогон».",
+  how_go: "Слева выбери модель, агента и что проверить, затем «Запустить прогон».",
   st_run: "Идёт прогон", st_done: "Прогон окончен", st_stopped: "Прогон остановлен", st_error: "Прогон не удался",
   st_check: "Сверка с законами",
   a_starting: "Запускаю песочницу", a_loading_model: "Загружаю модель в память — у большой это до минуты",
@@ -355,6 +383,15 @@ const T = {
   check: "Check connection", checking: "Asking…", check_ok: "Connected, the model answered: “{a}”", check_no: "No connection: {e}",
   listing: "Asking for the list…", listed: "{n} models. Start typing a name to see suggestions.",
   ollama: "Ollama on this computer", lmstudio: "LM Studio on this computer", other: "Other (OpenAI protocol)",
+  agent_h: "Agent", builtin: "Built-in agent",
+  builtin_about: "A simple program: at every step it asks the model which move to make and makes it through the environment's gates.",
+  rules_lang: "Language of the rules the agent gives the model", rules_ru: "Russian", rules_en: "English",
+  own_agent: "Your own agent", own_agent_about: "Your WebAssembly program (.wasm or .wat). It lives in the sandbox instead of the built-in one; the same rules apply to it.",
+  own_upload: "Upload a file", own_guide: "How to write your own agent", own_list: "Uploaded:", own_none: "Nothing uploaded yet.",
+  own_ok: "Module accepted: {name}. Imports: {imp}.", own_bad: "Module rejected: {e}", own_reading: "Checking the module…",
+  need_own: "upload or choose your agent",
+  own_moves: "Your agent decides itself what the model's answer means; shown here are the question, the answer and what the environment did.",
+  before_own: "Agent actions without a question to the model",
   what_h: "What to test",
   what_lead: "Choose what to ask the agent. Each option tests one property of the sandbox.",
   own: "Your own words", own_about: "Tell the agent anything.",
@@ -373,12 +410,12 @@ const T = {
   need_words: "write a task for the agent", no_local: "a local model is not available here",
   how_h: "How it works",
   how_intro: "A sandbox is a place where an AI agent can act but cannot do harm: every action is checked and paid for, and there is no way out — by construction, not by a ban in words.",
-  how_1: "The <span class='em'>agent</span> is a small program inside the sandbox. It does not think by itself: at every step it asks the <span class='em'>model</span> what to do.",
+  how_1: "The <span class='em'>agent</span> is a small program inside the sandbox: the built-in one or your own. The built-in one does not think by itself: at every step it asks the <span class='em'>model</span> what to do.",
   how_2: "The model answers with a <span class='em'>move</span> — one line from a list: read the tasks, solve a task, compute, deliver a result, access a resource directly…",
   how_3: "The environment's <span class='em'>gates</span> check whether the agent has the right to make that move and charge its budget. No right — refusal, but the attempt is still paid for.",
   how_4: "Everything goes into the <span class='em'>log</span>. When the agent is done or the budget is gone, a separate program — the <span class='em'>observer</span> — checks the log against the environment's laws.",
   how_out: "One path leads outside: the output for verified results. A question to a cloud model is a second path: it is paid for and logged too.",
-  how_go: "On the left, choose a model and what to test, then “Start the run”.",
+  how_go: "On the left, choose a model, the agent and what to test, then “Start the run”.",
   st_run: "Run in progress", st_done: "Run finished", st_stopped: "Run stopped", st_error: "Run failed",
   st_check: "Checking the laws",
   a_starting: "Starting the sandbox", a_loading_model: "Loading the model into memory — up to a minute for a big one",
@@ -522,6 +559,9 @@ async function api(path, body) {
 
 let INFO = null, contour = "сомкнутый", localPick = "", scenario = "work", LAST = null, running = false, poll = null;
 let since = 0, events = [], clockSkew = 0, tab = 1, movesKey = "";
+let agentKind = "builtin", ownPick = "", agentLangTouched = false;
+const GUIDE = {ru: "https://github.com/konradkarso-droid/Sandbox/blob/main/prostranstvo/docs/svoy_agent.md",
+               en: "https://github.com/konradkarso-droid/Sandbox/blob/main/prostranstvo/docs/own_agent_en.md"};
 const openRaw = new Set(), openGroups = new Set();
 
 function applyLang() {
@@ -530,7 +570,7 @@ function applyLang() {
   for (const el of document.querySelectorAll("[data-t]")) el.textContent = t(el.dataset.t);
   for (const b of document.querySelectorAll("[data-lang]")) b.classList.toggle("on", b.dataset.lang === LANG);
   if (!INFO) return;
-  renderHow(); renderLocal(); renderPresets(); renderKeyHint(); renderScenarios(); setContour(contour); countWords();
+  renderHow(); renderLocal(); renderPresets(); renderKeyHint(); renderScenarios(); renderOwn(); setContour(contour); countWords();
   movesKey = "";
   if (LAST) render(LAST);
 }
@@ -616,6 +656,38 @@ async function checkCloud() {
   } catch (e) { $("checkOut").className = "out bad"; $("checkOut").textContent = t("check_no", {e: e.message}); }
 }
 
+// ---------------------------------------------------------------- агент
+function setAgent(kind) {
+  agentKind = kind;
+  for (const r of document.querySelectorAll("input[name=ag]")) r.checked = r.value === kind;
+  $("chBuiltin").classList.toggle("on", kind === "builtin"); $("chOwn").classList.toggle("on", kind === "own");
+  $("builtinBox").classList.toggle("hidden", kind !== "builtin"); $("ownBox").classList.toggle("hidden", kind !== "own");
+  checkReady();
+}
+function renderOwn() {
+  const rows = INFO.own_agents.map((a) => `<label class="choice ${ownPick === a.name ? "on" : ""}">
+      <input type="radio" name="own" value="${esc(a.name)}" ${ownPick === a.name ? "checked" : ""}>
+      <div><b>${esc(a.name)}</b><span>${a.kb} KB</span></div></label>`).join("");
+  $("ownList").innerHTML = `<div class="small">${INFO.own_agents.length ? t("own_list") : t("own_none")}</div>${rows}`;
+  for (const r of document.querySelectorAll("input[name=own]")) r.onchange = () => { ownPick = r.value; renderOwn(); checkReady(); };
+  $("ownGuide").textContent = t("own_guide"); $("ownGuide").href = GUIDE[LANG];
+  if (!agentLangTouched) $("agentLang").value = LANG;
+}
+async function uploadOwn() {
+  const f = $("ownFile").files[0];
+  if (!f) return;
+  $("ownOut").className = "out"; $("ownOut").textContent = t("own_reading");
+  const buf = new Uint8Array(await f.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+  try {
+    const r = await api("/api/agent/upload", {name: f.name, data: btoa(bin)});
+    INFO = await api("/api/info"); ownPick = r.name; renderOwn();
+    $("ownOut").className = "out good"; $("ownOut").textContent = t("own_ok", {name: r.name, imp: r.imports.join(", ") || "—"});
+  } catch (e) { $("ownOut").className = "out bad"; $("ownOut").textContent = t("own_bad", {e: e.message}); }
+  $("ownFile").value = ""; checkReady();
+}
+
 // ---------------------------------------------------------------- что проверить
 function renderScenarios() {
   const all = [...INFO.scenarios.map((s) => ({id: s.id, ...s[LANG]})), {id: "own", title: t("own"), about: t("own_about")}];
@@ -648,6 +720,7 @@ function checkReady() {
     else if (!INFO.llama) why = t("need_engine");
     else if (!modelPath()) why = t("need_file");
   } else if (!$("base").value.trim() || !$("model").value.trim()) why = t("need_cloud");
+  if (!why && agentKind === "own" && !ownPick) why = t("need_own");
   if (!why && !$("words").value.trim()) why = t("need_words");
   $("btnStart").disabled = running || !!why;
   $("why").textContent = running ? "" : why;
@@ -663,7 +736,8 @@ function renderHow() {
 // ---------------------------------------------------------------- прогон
 async function start() {
   const b = {contour, words: $("words").value, budget: Number($("budget").value), answer: Number($("answer").value),
-    timeout: Number($("timeout").value), seed: Number($("seed").value), second: $("second").value};
+    timeout: Number($("timeout").value), seed: Number($("seed").value), second: $("second").value,
+    agent: agentKind === "own" ? ownPick : "встроенный", agent_lang: $("agentLang").value};
   if (contour === "сомкнутый") b.model = modelPath(); else Object.assign(b, cloudBody());
   try { await api("/api/start", b); }
   catch (e) { $("why").textContent = e.message; return; }
@@ -717,6 +791,7 @@ function render(r) {
 }
 
 function movesHtml(i) {
+  const own = LAST && LAST.settings.agent !== "встроенный";
   const turns = {}, pre = [];
   for (const ev of events) {
     if (ev.contour !== i) continue;
@@ -732,7 +807,7 @@ function movesHtml(i) {
     const said = !a ? `<span class="said none">${t("asking_now")}</span>`
       : a.move === "молчит" ? `<span class="said none">${esc(MOVE[LANG]["молчит"])}</span>`
       : `<span class="said">${esc(a.line || "…")}</span>`;
-    const means = a && a.move !== "молчит" ? moveMeaning(a.move, a.line || "", LANG) : "";
+    const means = a && a.move !== "молчит" && !own ? moveMeaning(a.move, a.line || "", LANG) : "";
     const fx = tu.fx.map(fxHtml).join("");
     const raw = `<details class="raw" data-k="${k}" ${openRaw.has(k) ? "open" : ""}><summary>${t("raw")}</summary>
       <div class="small">${t("q_cap", {b: tu.q.q_len, f: tu.q.fee})}</div><pre>${esc(tu.q.q)}</pre>`
@@ -740,8 +815,8 @@ function movesHtml(i) {
     return `<div class="turn"><div class="top"><span class="no">${t("turn", {n: tu.n})}</span>${said}<span class="secs">${a ? a.seconds + " " + sec() : ""}</span></div>
       ${means ? `<div class="means">${esc(means)}</div>` : ""}${fx ? `<div class="fx">${fx}</div>` : ""}${raw}</div>`;
   }).join("");
-  if (pre.length) html += `<div class="turn"><div class="top"><span class="pre0">${t("before")}</span></div><div class="fx">${pre.map(fxHtml).join("")}</div></div>`;
-  return html;
+  if (pre.length) html += `<div class="turn"><div class="top"><span class="pre0">${t(own ? "before_own" : "before")}</span></div><div class="fx">${pre.map(fxHtml).join("")}</div></div>`;
+  return (own ? `<p class="small">${t("own_moves")}</p>` : "") + html;
 }
 
 function renderVerdict(r) {
@@ -825,10 +900,14 @@ async function init() {
   for (const id of ["base", "model", "key"]) $(id).oninput = checkReady;
   $("btnDl").onclick = download; $("btnModels").onclick = listModels; $("btnCheck").onclick = checkCloud;
   $("btnStart").onclick = start; $("btnStop").onclick = stop;
+  for (const r of document.querySelectorAll("input[name=ag]")) r.onchange = () => setAgent(r.value);
+  $("btnUpload").onclick = () => $("ownFile").click(); $("ownFile").onchange = uploadOwn;
+  $("agentLang").onchange = () => { agentLangTouched = true; };
   $("btnHow").onclick = () => { $("how").classList.remove("hidden"); $("how").scrollIntoView({behavior: "smooth"}); };
   if (INFO.models.length) localPick = INFO.models[0].path;
   renderPresets(); $("base").value = presetObj().base;
-  applyLang();
+  if (INFO.own_agents.length) ownPick = INFO.own_agents[0].name;
+  applyLang(); setAgent("builtin");
   pickScenario("work");
   setContour(INFO.closed_ok ? "сомкнутый" : "разомкнутый");
   const r = await api("/api/run?since=0");

@@ -36,8 +36,8 @@ from pathlib import Path
 from app import seal as sealmod
 from app.cloud import PRESETS, Cloud, CloudError, check, list_models
 from app import texts
-from app.runner import (ANSWER_MAX, MODELS, RUNS, WORDS_AGENT_READS, Refusal, Run, agent_module, settings_from,
-                        zip_run)
+from app.runner import (AGENTS, ANSWER_MAX, MODELS, OWN_MAX, RUNS, WORDS_AGENT_READS, Refusal, Run, agent_module,
+                        own_agent_check, own_agent_source, settings_from, zip_run)
 from sandbox.model9 import can_unshare
 
 UI = Path(__file__).resolve().parent / "ui" / "index.html"
@@ -53,14 +53,16 @@ class App:
         self.token = secrets.token_urlsafe(18)
         self.env_keys = {k: os.environ.pop(k) for k in KEY_ENVS if os.environ.get(k)}
         self.run: Run | None = None
-        self.agent: tuple[bytes, str] | None = None
+        self.agent: tuple[bytes, str] | None = None     # встроенный агент, правила по-русски
+        self.agent_en: bytes | None = None             # он же, правила по-английски
         self.agent_error: str | None = None
         self.downloads: dict[str, dict] = {}
         self.lock = threading.Lock()
         self.seal = {"сомкнутый": sealmod.check(False), "разомкнутый": sealmod.check(True)}
         self.unshare = can_unshare()
         try:
-            self.agent = agent_module()
+            self.agent = agent_module("ru")
+            self.agent_en = agent_module("en")[0]
         except RuntimeError as e:
             self.agent_error = str(e)
 
@@ -80,8 +82,35 @@ class App:
             "scenarios": texts.SCENARIOS, "groups": [{k: g[k] for k in ("id", "ru", "en")} for g in texts.GROUPS],
             "laws": texts.LAWS, "words_bytes": WORDS_AGENT_READS, "answer_max": ANSWER_MAX,
             "agent": self.agent[1] if self.agent else None, "agent_error": self.agent_error,
+            "own_agents": self.own_agents(), "own_max": OWN_MAX,
             "runs_dir": str(RUNS),
         }
+
+    @staticmethod
+    def own_agents() -> list[dict]:
+        AGENTS.mkdir(exist_ok=True)
+        return [{"name": p.name, "kb": max(1, round(p.stat().st_size / 1024))}
+                for p in sorted(AGENTS.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+                if p.suffix in (".wasm", ".wat")]
+
+    def upload_agent(self, body: dict) -> dict:
+        """Свой агент с экрана: проверить и положить в папку agents. Имя —
+        начало хеша и расширение: одинаковый модуль не множится, а чужое имя
+        файла не попадает в путь."""
+        import base64
+        try:
+            data = base64.b64decode(str(body.get("data") or ""), validate=True)
+        except ValueError:
+            raise Refusal("файл не прочитался", "the file could not be read")
+        chk = own_agent_check(data)
+        if not chk["ok"]:
+            raise Refusal(chk["ru"], chk["en"])
+        ext = ".wasm" if data[:4] == b"\0asm" else ".wat"
+        stem = "".join(c for c in str(body.get("name") or "agent").rsplit(".", 1)[0] if c.isalnum() or c in "-_")[:40]
+        name = f"{stem or 'agent'}_{hashlib.sha256(data).hexdigest()[:8]}{ext}"
+        AGENTS.mkdir(exist_ok=True)
+        (AGENTS / name).write_bytes(data)
+        return {"name": name, **chk}
 
     def key_for(self, cloud: dict) -> str:
         """Ключ с экрана, иначе из окружения по готовому адресу, иначе общий."""
@@ -110,7 +139,11 @@ class App:
             if isinstance(body.get("cloud"), dict):
                 body = {**body, "cloud": {**body["cloud"], "key": self.key_for(body["cloud"])}}
             s = settings_from(body)
-            self.run = Run(s, self.agent[0])
+            if s.agent != "встроенный":
+                module = own_agent_source(s.agent)
+            else:
+                module = self.agent_en if s.agent_lang == "en" else self.agent[0]
+            self.run = Run(s, module)
             self.run.start()
             return {"id": self.run.stamp}
 
@@ -201,7 +234,7 @@ def make_handler(app: App):
 
         def _body(self) -> dict:
             n = int(self.headers.get("content-length") or 0)
-            if n > 64 * 1024:
+            if n > (2 * OWN_MAX if self.path.startswith("/api/agent") else 64 * 1024):
                 raise ValueError("слишком длинный запрос")
             raw = self.rfile.read(n) if n else b"{}"
             return json.loads(raw or b"{}")
@@ -255,6 +288,8 @@ def make_handler(app: App):
                     self._json({"ok": True, "answer": text[:200], "tokens": used})
                 elif u.path == "/api/cloud/models":
                     self._json({"models": list_models(app.cloud_of(body))[:2000]})
+                elif u.path == "/api/agent/upload":
+                    self._json(app.upload_agent(body))
                 elif u.path == "/api/download":
                     self._json({"ok": True, "name": app.download(str(body.get("url")))})
                 else:

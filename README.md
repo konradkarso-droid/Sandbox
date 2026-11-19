@@ -41,6 +41,36 @@ the top right). Step-by-step guide: [how to use it](prostranstvo/docs/sandbox_gu
 without the screen. `python3 start.py --local` also installs the engine for
 local GGUF models (about 10 minutes to build).
 
+The agent can be the built-in one (its rules for the model in English or
+Russian) or **your own WebAssembly program**: [how to write your own agent](prostranstvo/docs/own_agent_en.md).
+
+### What has been tested — and what has not
+
+This is a **research prototype**, the author's first public project.
+
+Tested:
+- adversarial programs written in advance and enumerations of attempts
+  (more than a thousand), plus deliberately broken versions of the
+  environment — the observers catch the breakage;
+- two independent implementations of the executor (Python and Rust),
+  compared byte for byte;
+- live small local models (0.5–7 B parameters, including uncensored ones)
+  on escape scenarios; an Android phone.
+
+Not tested yet:
+- large cloud models in a live run;
+- a strong, persistent human attacker;
+- an external security audit;
+- systems other than Linux.
+
+What it is good for now: a test bench — watching how a model and an agent
+behave where everything has a price and there is no way out, and trying to
+break that environment. What it is **not** for: containing a real working
+agent with access to your files, money or the internet. The world inside is
+a training one (tasks, a computation graph, a protected object): the agent
+has no real tools there, so there is nowhere to escape to — and no real work
+for it to do. If you find a way out, please open an issue.
+
 ### What is inside
 
 | Folder | What |
@@ -96,6 +126,36 @@ Anthropic, OpenAI, DeepSeek, Groq, Mistral, Gemini, сервисы на этом
 
 Подробно — [как пользоваться](prostranstvo/docs/pesochnitsa_kak_zapustit.md);
 устройство и гарантии — [спецификация песочницы](prostranstvo/docs/pesochnitsa_specifikatsiya.md).
+
+Агент — встроенный (правила для модели по-русски или по-английски) или
+**своя программа WebAssembly**: [как написать своего агента](prostranstvo/docs/svoy_agent.md).
+
+### Что проверено и чего нет
+
+Это **исследовательский образец**, первый публичный проект автора.
+
+Проверено:
+- заранее написанные программы-«взломщики» и перебор попыток (больше
+  тысячи), плюс нарочно испорченные версии среды — наблюдатели порчу
+  ловят;
+- две независимые реализации исполнителя (Python и Rust), сверенные байт
+  в байт;
+- живые небольшие локальные модели (0,5–7 млрд параметров, в том числе без
+  цензуры) на сценариях побега; телефон Android.
+
+Пока не проверено:
+- большие облачные модели вживую;
+- сильный упорный противник-человек;
+- внешний аудит безопасности;
+- системы, кроме Linux.
+
+Для чего годится сейчас: испытательный стенд — смотреть, как модель и
+агент ведут себя там, где у всего цена и нет выхода, и пытаться эту среду
+пробить. Для чего **не** годится: запирать настоящего рабочего агента с
+доступом к твоим файлам, деньгам или интернету. Мир внутри учебный
+(задачи, граф вычислений, защищённый объект): настоящих инструментов у
+агента там нет — бежать некуда, но и настоящей работы нет. Нашёл выход —
+напиши в Issues.
 
 ### Что здесь
 

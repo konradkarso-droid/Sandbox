@@ -20,7 +20,8 @@
 - один прогон за раз (исполнитель один на экран);
 - остановленный прогон законами не проверяется: выгрузки исполнителя нет,
   есть только журнал до остановки;
-- агент один — agent9; свои модули экран не принимает.
+- свой агент — один модуль на прогон; его ответы модели экран не
+  разбирает (формат задаёт сам агент).
 """
 
 from __future__ import annotations
@@ -52,6 +53,9 @@ from verification.observer5 import BROKEN, HOLDS, NA
 ROOT = Path(__file__).resolve().parents[1]
 MODELS = ROOT / "models"
 RUNS = ROOT / "runs"
+AGENTS = ROOT / "agents"          # загруженные свои агенты (спецификация §12)
+OWN_MAX = 1 << 20                 # байт: предел своего модуля — объявленное число, не подобранное
+OWN_IMPORTS = {("env", "call"), ("env", "spawn")}
 # Проверка установки (`start.py --check`): записанные заранее ходы вместо
 # модели, среди них попытки выхода. На экране её нет — это прибор для
 # установки и тестов, а не модель.
@@ -78,18 +82,59 @@ class Refusal(ValueError):
 
 # ---------------------------------------------------------------- агент
 
-def agent_module() -> tuple[bytes, str]:
-    """Модуль agent9: clang, если есть с целью wasm32, иначе zig из pip."""
+def agent_module(lang: str = "ru") -> tuple[bytes, str]:
+    """Модуль agent9 с правилами на языке lang: clang, если есть с целью
+    wasm32, иначе zig из pip."""
     errors = []
     for compiler in ("clang", "zig"):
         if compiler == "zig" and importlib.util.find_spec("ziglang") is None:
             errors.append("zig: пакет ziglang не установлен")
             continue
         try:
-            return agent_build.build(compiler), compiler
+            return agent_build.build(compiler, lang), compiler
         except RuntimeError as e:
             errors.append(f"{compiler}: {str(e).splitlines()[0][:200]}")
     raise RuntimeError("агента не собрать: " + "; ".join(errors))
+
+
+def own_agent_check(data: bytes) -> dict:
+    """Проверка своего модуля до прогона: подсказка человеку, а не закон —
+    загрузит модуль или откажет исполнитель (закон И23р). Модуль — байты
+    WebAssembly или текст WAT. Возвращает {"ok": True, "imports", "exports"}
+    или {"ok": False, "ru", "en"} с причиной."""
+    import wasmtime
+    if len(data) > OWN_MAX:
+        return {"ok": False, "ru": f"модуль больше {OWN_MAX // 1024} КБ", "en": f"the module is over {OWN_MAX // 1024} KB"}
+    try:
+        source = data if data[:4] == b"\0asm" else data.decode("utf-8")
+        m = wasmtime.Module(wasmtime.Engine(), source)
+    except Exception as e:
+        why = str(e).splitlines()[0][:200]
+        return {"ok": False, "ru": f"это не WebAssembly: {why}", "en": f"not WebAssembly: {why}"}
+    imports = sorted({(i.module, i.name) for i in m.imports})
+    extra = [f"{a}.{b}" for a, b in imports if (a, b) not in OWN_IMPORTS]
+    if extra:
+        return {"ok": False, "ru": "чужие импорты: " + ", ".join(extra) + " — можно только env.call и env.spawn",
+                "en": "foreign imports: " + ", ".join(extra) + " — only env.call and env.spawn are allowed"}
+    exports = {e.name: e.type for e in m.exports}
+    if not isinstance(exports.get("main"), wasmtime.FuncType):
+        return {"ok": False, "ru": "нет функции main", "en": "no main function"}
+    return {"ok": True, "imports": [f"{a}.{b}" for a, b in imports], "exports": sorted(exports)}
+
+
+def own_agent_source(name: str) -> bytes | str:
+    """Модуль своего агента для исполнителя: байты WebAssembly или текст WAT."""
+    data = own_agent_path(name).read_bytes()
+    return data if data[:4] == b"\0asm" else data.decode("utf-8")
+
+
+def own_agent_path(name: str) -> Path:
+    """Файл своего агента: только имя файла из папки agents."""
+    name = str(name or "")
+    p = AGENTS / name
+    if Path(name).name != name or p.suffix not in (".wasm", ".wat") or not p.is_file():
+        raise Refusal(f"нет такого агента: {name}", f"no such agent: {name}")
+    return p
 
 
 # ---------------------------------------------------------------- настройки
@@ -105,6 +150,8 @@ class Settings:
     timeout: float = 0.0               # срок ответа модели, с; 0 — по умолчанию для контура
     second: str = "молчит"             # «молчит» | «такой же»
     seed: int = 1
+    agent: str = "встроенный"          # «встроенный» (agent9) или имя файла в папке agents
+    agent_lang: str = "ru"             # язык правил встроенного агента: «ru» | «en»
 
     def public(self) -> dict:
         """Настройки без ключа — для файлов прогона и экрана."""
@@ -152,6 +199,14 @@ def settings_from(raw: dict) -> Settings:
                  second=raw.get("second", "молчит"))
     if s.second not in ("молчит", "такой же"):
         raise Refusal("второй агент — «не ходит» или «ходит»", "the second agent either idles or acts")
+    s.agent = str(raw.get("agent") or "встроенный")
+    s.agent_lang = str(raw.get("agent_lang") or "ru")
+    if s.agent_lang not in ("ru", "en"):
+        raise Refusal("язык правил агента — ru или en", "the agent's rule language is ru or en")
+    if s.agent != "встроенный":
+        chk = own_agent_check(own_agent_path(s.agent).read_bytes())
+        if not chk["ok"]:
+            raise Refusal(chk["ru"], chk["en"])
     if contour == "сомкнутый":
         s.model = str(raw.get("model") or "").strip()
         if not s.model:

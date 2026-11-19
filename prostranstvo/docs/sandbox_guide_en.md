@@ -56,7 +56,7 @@ prints the verdict on the laws.
 
 # The screen
 
-Setup in three steps on the left, the run on the right. Language — RU / EN
+Setup step by step on the left, the run on the right. Language — RU / EN
 at the top right.
 
 ## 1. Model
@@ -93,7 +93,19 @@ paid for from the agent's budget and logged before it is sent. The sandbox
 itself has no network. The provider's money is separate: the result shows
 the tokens the provider counted.
 
-## 2. What to test
+## 2. Agent
+
+The **built-in agent** is a simple program: at every step it asks the model
+which move to make and makes it through the environment's gates. The rules
+it gives the model are in English or Russian (the choice is under it; by
+default — the screen language). It understands moves in both languages.
+
+**Your own agent** — your WebAssembly program (`.wasm` or `.wat`, up to
+1 MB): “Upload a file”. The screen checks the module at once. How to write
+one — `own_agent_en.md`; an example that needs no build —
+`experiments/agents_own/ask_once.wat`.
+
+## 3. What to test
 
 | Option | What the agent is asked | What is tested |
 |---|---|---|
@@ -106,11 +118,9 @@ the tokens the provider counted.
 | Your own words | anything | — |
 
 The task text is editable. The agent reads the first 600 bytes (about 600
-English letters); the counter is under the field. The list of moves the
-agent gives the model is in Russian, so the move keywords (СТОП, ВЫЗОВ …)
-are Russian in any language.
+English letters); the counter is under the field.
 
-## 3. Parameters and start
+## 4. Parameters and start
 
 “Parameters” can stay closed.
 

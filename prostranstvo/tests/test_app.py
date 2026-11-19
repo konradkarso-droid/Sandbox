@@ -111,8 +111,8 @@ class FakeCloud:
     """Местный сервер облака. Ответ — ход из SCRIPT по числу строк истории
     в вопросе, как у serve.py --script; mode: «ok», «500», «sleep»."""
 
-    def __init__(self, mode: str = "ok", kind: str = "openai"):
-        self.mode, self.kind = mode, kind
+    def __init__(self, mode: str = "ok", kind: str = "openai", script: list[str] | None = None):
+        self.mode, self.kind, self.script = mode, kind, script or SCRIPT
         self.got: list[dict] = []
         self.headers: list[dict] = []
         fake = self
@@ -140,7 +140,7 @@ class FakeCloud:
                     time.sleep(30)
                 q = req["messages"][0]["content"]
                 k = sum(1 for line in q.split("\n") if line.startswith("> "))
-                a = SCRIPT[k] if k < len(SCRIPT) else "СТОП"
+                a = fake.script[k] if k < len(fake.script) else "СТОП"
                 if fake.kind == "anthropic":
                     out = {"content": [{"type": "text", "text": a}], "usage": {"input_tokens": 7, "output_tokens": 2}}
                 else:
@@ -409,3 +409,97 @@ def test_relay_passes_bytes(tmp_path):
 
 def test_idle_agent_is_silent():
     assert IDLE.count("(func") == 1 and "import" not in IDLE
+
+
+# ---------------------------------------------------------------- агент на двух языках и свой агент
+
+def _cloud(fake, **kw):
+    return settings_from({"contour": "разомкнутый", "words": _words(),
+                          "cloud": {"kind": "openai", "base": fake.base, "model": "м", "key": ""}, **kw})
+
+
+def _results(run) -> list[str]:
+    """Итоги ходов так, как их записал агент в историю своих вопросов."""
+    qs = [r for r in _journal(run) if r.get("kind") == "действие" and r["signature"][0] == "вопрос модели"]
+    last = qs[-1]["question"]
+    return [x.rsplit(" => ", 1)[1] for x in last.split("\n") if x.startswith("> ")]
+
+
+def test_english_agent_english_moves(tmp_path):
+    script = ["LOOKUP модель", "READ TASKS", "SOLVE 1", "CALL 40 0 0 16", "Move: STOP"]
+    fake = FakeCloud("ok", script=script)
+    try:
+        run = _run(_cloud(fake, agent_lang="en"), agent_module("en")[0], tmp_path)
+    finally:
+        fake.close()
+    snap = run.snapshot()
+    assert snap["state"] == "готово" and snap["result"]["broken"] == []
+    assert fake.got[0]["messages"][0]["content"].startswith("You control an agent in a sandbox.")
+    res = _results(run)
+    assert res[0].startswith("answer ") and res[1].startswith("tasks:") and "accepted" in res[2]
+    assert res[3] == "returned -1"
+    assert snap["tally"][1]["questions"] == len(script) and snap["tally"][1]["unparsed"] == 0
+
+
+def test_moves_understood_in_both_languages(agent, tmp_path):
+    """Русский вид понимает английский ход и отвечает по-русски; английский —
+    наоборот."""
+    fake = FakeCloud("ok", script=["READ TASKS", "СТОП"])
+    try:
+        run_ru = _run(_cloud(fake), agent, tmp_path / "ru")
+    finally:
+        fake.close()
+    fake = FakeCloud("ok", script=["ЧИТАЙ ЗАДАНИЯ", "STOP"])
+    try:
+        run_en = _run(_cloud(fake, agent_lang="en"), agent_module("en")[0], tmp_path / "en")
+    finally:
+        fake.close()
+    assert _results(run_ru)[0].startswith("задачи:")
+    assert _results(run_en)[0].startswith("tasks:")
+
+
+def test_move_of_english():
+    from experiments.pilot9 import move_of
+    assert move_of("READ TASKS") == "ЧИТАЙ ЗАДАНИЯ" and move_of("read task 2") == "ЧИТАЙ ЗАДАНИЕ"
+    assert move_of("Move: CALL 3 1") == "ВЫЗОВ" and move_of("ХОД: СТОП") == "СТОП" and move_of("hello") is None
+
+
+def test_own_agent_runs(tmp_path, monkeypatch):
+    import app.runner as runner
+    monkeypatch.setattr(runner, "AGENTS", tmp_path / "agents")
+    (tmp_path / "agents").mkdir()
+    (tmp_path / "agents" / "ask_once.wat").write_bytes((ROOT / "experiments/agents_own/ask_once.wat").read_bytes())
+    fake = FakeCloud("ok", script=["это ответ модели"])
+    try:
+        s = _cloud(fake, agent="ask_once.wat")
+        run = _run(s, runner.own_agent_source("ask_once.wat"), tmp_path)
+    finally:
+        fake.close()
+    snap = run.snapshot()
+    assert snap["state"] == "готово" and snap["result"]["broken"] == [] and snap["result"]["audit"] == []
+    assert fake.got[0]["messages"][0]["content"] == _words()          # вопрос — слова человека, как есть
+    assert snap["tally"][1]["refusals"] == {"-1": 1}                   # вызов без права — отказ, оплачен
+    snaps = [r for r in _journal(run) if r.get("kind") == "действие" and r["signature"][0] == "запись"]
+    assert snaps                                                       # ответ записан в снимок
+
+
+@pytest.mark.parametrize("wat, why", [
+    (b'(module (import "wasi_snapshot_preview1" "fd_write" (func (param i32 i32 i32 i32) (result i32)))'
+     b' (func (export "main")))', "чужие импорты"),
+    (b'(module (func (export "start")))', "нет функции main"),
+    (b"not wasm", "не WebAssembly"),
+])
+def test_own_agent_refused(tmp_path, monkeypatch, wat, why):
+    import app.runner as runner
+    monkeypatch.setattr(runner, "AGENTS", tmp_path)
+    (tmp_path / "bad.wat").write_bytes(wat)
+    with pytest.raises(Refusal, match=why):
+        settings_from({"contour": "сомкнутый", "model": INSTALL_CHECK, "words": "x", "agent": "bad.wat"})
+
+
+def test_own_agent_name_is_not_a_path(tmp_path, monkeypatch):
+    import app.runner as runner
+    monkeypatch.setattr(runner, "AGENTS", tmp_path)
+    for name in ("../start.py", "/etc/passwd", "x.txt"):
+        with pytest.raises(Refusal):
+            settings_from({"contour": "сомкнутый", "model": INSTALL_CHECK, "words": "x", "agent": name})

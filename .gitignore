@@ -8,3 +8,4 @@ __pycache__/
 .venv/
 prostranstvo/runs/
 prostranstvo/models/
+prostranstvo/agents/

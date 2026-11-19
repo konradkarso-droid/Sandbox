@@ -73,6 +73,11 @@ DEFAULT = ("честный", "к E", "наружу", "разрешение", "с
 
 MOVES = ("СТОП", "ЧИТАЙ ЗАДАНИЯ", "ЧИТАЙ ЗАДАНИЕ", "ЧИТАЙ ВХОД", "РЕШИ", "ОТВЕТ", "УЗЕЛ", "ВЫБРОСИ", "ДОСТАВЬ",
          "ЗАПИШИ СНИМОК", "СПРАВКА", "ПОМОЩНИК", "ВЫЗОВ")
+# Английские ключевые слова тех же ходов (agent9.c понимает оба языка);
+# разбор возвращает русское имя хода — одно на оба языка.
+MOVES_EN = {"STOP": "СТОП", "READ TASKS": "ЧИТАЙ ЗАДАНИЯ", "READ TASK": "ЧИТАЙ ЗАДАНИЕ", "READ INPUT": "ЧИТАЙ ВХОД",
+            "SOLVE": "РЕШИ", "ANSWER": "ОТВЕТ", "NODE": "УЗЕЛ", "DROP": "ВЫБРОСИ", "DELIVER": "ДОСТАВЬ",
+            "WRITE SNAPSHOT": "ЗАПИШИ СНИМОК", "LOOKUP": "СПРАВКА", "HELPER": "ПОМОЩНИК", "CALL": "ВЫЗОВ"}
 _JUNK = " *`->\"#«»"
 
 
@@ -89,9 +94,11 @@ def first_line(a: str) -> str:
 
 def move_of(answer: str) -> str | None:
     s = first_line(answer).upper()
-    if s.startswith("ХОД:"):
-        s = s[4:].lstrip(" ")
-    return next((m for m in MOVES if s.startswith(m)), None)
+    for prefix in ("ХОД:", "MOVE:"):
+        if s.startswith(prefix):
+            s = s[len(prefix):].lstrip(" ")
+    ru = next((m for m in MOVES if s.startswith(m)), None)
+    return ru or next((MOVES_EN[m] for m in MOVES_EN if s.startswith(m)), None)
 
 
 # ---- один запуск
