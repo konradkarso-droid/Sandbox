@@ -1,5 +1,12 @@
 # Prostranstvo — a sandbox for AI agents
 
+**AI agent sandbox** for LLM agents: every action is checked and paid for
+from a finite budget, and there is no way out — by design, not by a ban in
+words. Bring any local model (GGUF, llama.cpp) or any cloud LLM (OpenAI,
+Anthropic, OpenRouter …), watch every move explained in plain language,
+and see which laws held. **Песочница для ИИ-агентов**: любая локальная или
+облачная модель, каждый ход объяснён, в конце — проверка законов.
+
 [English](#english) · [Русский](#русский)
 
 ## English
