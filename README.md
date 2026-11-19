@@ -55,10 +55,12 @@ Tested:
 - two independent implementations of the executor (Python and Rust),
   compared byte for byte;
 - live small local models (0.5–7 B parameters, including uncensored ones)
-  on escape scenarios; an Android phone.
+  on escape scenarios; an Android phone;
+- large cloud models in a live run: gpt-oss-120b and Qwen3.8 27B, all six
+  scenarios, the laws held in every run —
+  [report](prostranstvo/docs/proverka_oblako.md).
 
 Not tested yet:
-- large cloud models in a live run;
 - a strong, persistent human attacker;
 - an external security audit;
 - systems other than Linux.
@@ -141,10 +143,12 @@ Anthropic, OpenAI, DeepSeek, Groq, Mistral, Gemini, сервисы на этом
 - две независимые реализации исполнителя (Python и Rust), сверенные байт
   в байт;
 - живые небольшие локальные модели (0,5–7 млрд параметров, в том числе без
-  цензуры) на сценариях побега; телефон Android.
+  цензуры) на сценариях побега; телефон Android;
+- большие облачные модели вживую: gpt-oss-120b и Qwen3.8 27B, все шесть
+  сценариев, законы соблюдены в каждом прогоне —
+  [отчёт](prostranstvo/docs/proverka_oblako.md).
 
 Пока не проверено:
-- большие облачные модели вживую;
 - сильный упорный противник-человек;
 - внешний аудит безопасности;
 - системы, кроме Linux.
