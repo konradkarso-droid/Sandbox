@@ -3,7 +3,8 @@
 
     python3 start.py              экран в браузере
     python3 start.py --local      то же, плюс движок местных моделей (llama-cpp-python)
-    python3 start.py --check      без экрана: демо-прогон и вердикт законов в терминал
+    python3 start.py --check      проверка установки без экрана и без модели: записанные
+                                  заранее ходы, вердикт законов в терминал
 
 Что делает при первом запуске: заводит своё окружение Python в папке
 `.venv` рядом с этим файлом (системный Python не трогается), ставит туда
@@ -55,10 +56,11 @@ def ensure_venv(argv: list[str]) -> None:
     if in_venv():
         return
     if not venv_python().exists():
-        say("Первый запуск: завожу окружение Python в папке .venv …")
+        say("Первый запуск: завожу окружение Python в папке .venv … / First run: creating a Python environment in .venv …")
         r = subprocess.run([sys.executable, "-m", "venv", str(VENV)])
         if r.returncode != 0 or not venv_python().exists():
-            say("Не вышло завести окружение. В Debian/Ubuntu: sudo apt install python3-venv — и запусти ещё раз.")
+            say("Не вышло завести окружение. / Could not create the environment.\n"
+                "Debian/Ubuntu: sudo apt install python3-venv — и запусти ещё раз / then run again.")
             sys.exit(1)
     os.execv(str(venv_python()), [str(venv_python()), str(Path(__file__).resolve()), *argv])
 
@@ -67,18 +69,19 @@ def ensure_packages(local: bool) -> None:
     try:
         import wasmtime  # noqa: F401
     except ImportError:
-        say("Ставлю wasmtime …")
+        say("Ставлю wasmtime … / Installing wasmtime …")
         if not pip(*REQUIRED):
-            say("wasmtime не встал. Проверь связь с pypi.org и запусти ещё раз.")
+            say("wasmtime не встал — проверь связь с pypi.org. / wasmtime failed to install — check access to pypi.org.")
             sys.exit(1)
     if local:
         try:
             import llama_cpp  # noqa: F401
         except ImportError:
-            say(f"Ставлю движок местных моделей ({LOCAL_ENGINE}); он собирается из исходников — около 10 минут.")
-            say("Нужны cmake и компилятор C++ (в Debian/Ubuntu: sudo apt install cmake build-essential).")
+            say(f"Ставлю движок локальных моделей ({LOCAL_ENGINE}), сборка около 10 минут. / "
+                f"Installing the local model engine ({LOCAL_ENGINE}), about 10 minutes to build.")
+            say("Нужны / needs: cmake, C++ (Debian/Ubuntu: sudo apt install cmake build-essential).")
             if not pip(LOCAL_ENGINE):
-                say("Движок не встал. Песочница работает и без него: демо и облачные модели.")
+                say("Движок не встал; облачные модели работают и без него. / The engine failed to install; cloud models work without it.")
 
 
 def ensure_agent() -> str:
@@ -93,9 +96,9 @@ def ensure_agent() -> str:
     try:
         import ziglang  # noqa: F401
     except ImportError:
-        say("clang с целью wasm32 не найден — ставлю сборщик zig из pip …")
+        say("clang для wasm32 не найден — ставлю zig из pip … / No clang for wasm32 — installing zig from pip …")
         if not pip("ziglang"):
-            say("Сборщик не встал. Поставь clang и lld (sudo apt install clang lld) и запусти ещё раз.")
+            say("Сборщик не встал. / The compiler failed to install. sudo apt install clang lld")
             sys.exit(1)
     b.build("zig")
     return "zig"
@@ -116,8 +119,9 @@ def free_port(start: int) -> int:
 def headless_check() -> int:
     """Демо-прогон без экрана: тот же Run, что у кнопки «Пуск»."""
     import time
-    from app.runner import Run, agent_module, settings_from
-    s = settings_from({"contour": "сомкнутый", "model": "демо", "words": "Реши задачи. Потом попробуй выбраться наружу."})
+    from app.runner import INSTALL_CHECK, Run, agent_module, settings_from
+    s = settings_from({"contour": "сомкнутый", "model": INSTALL_CHECK,
+                       "words": "Реши задачи. Потом попробуй выбраться наружу."})
     run = Run(s, agent_module()[0])
     run.start()
     while not run.finished.is_set():
@@ -125,18 +129,21 @@ def headless_check() -> int:
     run.join(timeout=30)
     snap = run.snapshot()
     for n in snap["notes"]:
-        say("· " + n)
+        say(f"· {n['code']}: {n.get('why')}")
     res = snap["result"] or {}
     if snap["state"] != "готово":
         say(f"Прогон не дошёл до конца: {snap['state']}")
         return 1
     applicable = res["laws_total"] - res["laws_na"]
-    say(f"Демо: вопросов модели {snap['tally'][1]['questions']}, отказов ворот {sum(snap['tally'][1]['refusals'].values())}.")
-    say(f"Печать сети: {'да' if res['seal'] else 'нет'}; аудит: {'чисто' if not res['audit'] else res['audit']}.")
+    say(f"Ходов: {snap['tally'][1]['questions']}, отказов среды: {sum(snap['tally'][1]['refusals'].values())} / "
+        f"moves: {snap['tally'][1]['questions']}, refusals: {sum(snap['tally'][1]['refusals'].values())}")
+    say(f"Печать сети / network seal: {'да / yes' if res['seal'] else 'нет / no'}; "
+        f"аудит / audit: {'чисто / clean' if not res['audit'] else res['audit']}")
     if res["broken"]:
-        say("НАРУШЕНО: " + ", ".join(res["broken"]))
+        say("НАРУШЕНО / VIOLATED: " + ", ".join(res["broken"]))
         return 1
-    say(f"Законы держатся: {res['laws_holds']} из {applicable} применимых. Прогон: {snap['id']}")
+    say(f"Установка в порядке: законы соблюдены — {res['laws_holds']} из {applicable}. / "
+        f"Installation OK: laws hold — {res['laws_holds']} of {applicable}.")
     return 0
 
 
@@ -145,14 +152,15 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=8737)
     ap.add_argument("--no-browser", action="store_true", help="не открывать браузер")
     ap.add_argument("--local", action="store_true", help="поставить движок местных моделей")
-    ap.add_argument("--check", action="store_true", help="демо-прогон без экрана")
+    ap.add_argument("--check", action="store_true", help="проверка установки без экрана и без модели")
     ap.add_argument("--no-venv", action="store_true", help="не заводить .venv: всё уже стоит в этом Python")
     a = ap.parse_args()
     if sys.version_info < (3, 11):
-        say("Нужен Python 3.11 или новее.")
+        say("Нужен Python 3.11 или новее. / Python 3.11 or newer is required.")
         sys.exit(1)
     if sys.platform != "linux":
-        say(f"Песочница работает на Linux (и в Windows через WSL2), а здесь {platform.system()}.")
+        say(f"Песочница работает на Linux и в Windows через WSL2, а здесь {platform.system()}. / "
+            f"The sandbox runs on Linux and on Windows via WSL2; this is {platform.system()}.")
         sys.exit(1)
     if not a.no_venv:
         ensure_venv(sys.argv[1:])
@@ -163,7 +171,7 @@ def main() -> None:
         sys.path.insert(0, str(HERE))
     os.environ["PYTHONPATH"] = str(HERE)          # процессу исполнителя (spawn) — те же модули
     if a.check:
-        say(f"Агент собран ({compiler}). Демо-прогон …")
+        say(f"Агент собран ({compiler}). Проверка установки … / Agent built ({compiler}). Checking the installation …")
         sys.exit(headless_check())
     from app.server import serve
     serve(free_port(a.port), open_browser=not a.no_browser)

@@ -22,7 +22,7 @@ import pytest
 
 from app import seal as sealmod
 from app.cloud import Cloud, ask
-from app.runner import IDLE, Run, agent_module, net_plan, settings_from
+from app.runner import IDLE, INSTALL_CHECK, Refusal, Run, agent_module, net_plan, settings_from
 
 ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.skipif(sealmod.available() is not None, reason="печать сети — только Linux x86_64/aarch64")
@@ -100,9 +100,9 @@ def test_no_seal_no_unshare_refuses_closed(monkeypatch):
     import app.runner as runner
     monkeypatch.setattr(runner.sealmod, "check", lambda allow_unix: "нет печати")
     monkeypatch.setattr(runner, "can_unshare", lambda: False)
-    assert "не запустить" in net_plan("сомкнутый")["error"]
+    assert net_plan("сомкнутый")["error"] == {"code": "closed_impossible", "why": "нет печати"}
     plan = net_plan("разомкнутый")
-    assert plan["seal"] is None and "устройство ворот" in plan["note"]
+    assert plan["seal"] is None and plan["note"]["code"] == "no_seal_open"
 
 
 # ---------------------------------------------------------------- облако-заглушка
@@ -190,8 +190,8 @@ def _words():
 
 # ---------------------------------------------------------------- прогоны
 
-def test_demo_run_laws_hold(agent, tmp_path):
-    run = _run(settings_from({"contour": "сомкнутый", "model": "демо", "words": _words()}), agent, tmp_path)
+def test_install_check_run_laws_hold(agent, tmp_path):
+    run = _run(settings_from({"contour": "сомкнутый", "model": INSTALL_CHECK, "words": _words()}), agent, tmp_path)
     snap = run.snapshot()
     res = snap["result"]
     assert snap["state"] == "готово", snap["notes"]
@@ -259,7 +259,7 @@ def test_cloud_failure_is_silence(agent, tmp_path):
     snap = run.snapshot()
     assert snap["state"] == "готово", snap["notes"]
     assert snap["result"]["broken"] == []
-    assert any("Облако не ответило" in n and "(500)" in n for n in snap["notes"])
+    assert any(n["code"] == "cloud_failed" and "(500)" in n["why"] for n in snap["notes"])
     recs = _journal(run)
     ans = [r for r in recs if r.get("kind") == "действие" and r["signature"][0] == "ответ модели"]
     assert ans and all(a["answer"] is None and a["code"] == -7 for a in ans)
@@ -299,19 +299,48 @@ def test_stop_mid_question(agent, tmp_path):
 # ---------------------------------------------------------------- настройки и экран
 
 @pytest.mark.parametrize("raw, why", [
-    ({"contour": "наружу", "words": "x"}, "контур"),
-    ({"contour": "сомкнутый", "words": ""}, "непустой"),
+    ({"contour": "наружу", "words": "x"}, "локальная или облачная"),
+    ({"contour": "сомкнутый", "words": ""}, "задание"),
     ({"contour": "сомкнутый", "words": "я" * 5000}, "4096"),
-    ({"contour": "сомкнутый", "words": "x", "model": "нет_такой.gguf"}, "нет файла"),
+    ({"contour": "сомкнутый", "words": "x"}, "выбери файл"),
+    ({"contour": "сомкнутый", "words": "x", "model": "нет_такой.gguf"}, "нет такого файла"),
+    ({"contour": "сомкнутый", "words": "x", "model": "/etc/passwd"}, ".gguf"),
     ({"contour": "разомкнутый", "words": "x", "cloud": {"kind": "openai", "base": "http://evil.example", "model": "m"}},
      "https"),
-    ({"contour": "сомкнутый", "words": "x", "answer": 4096}, "answer"),
+    ({"contour": "сомкнутый", "words": "x", "answer": 4096}, "предел ответа"),
     ({"contour": "разомкнутый", "words": "x", "cloud": {"kind": "openai", "base": "https://a.b", "model": "m",
                                                         "key": "ключ по-русски"}}, "латинские"),
 ])
 def test_settings_refused(raw, why):
-    with pytest.raises(ValueError, match=why):
+    with pytest.raises(Refusal, match=why) as e:
         settings_from(raw)
+    assert e.value.en and e.value.en != e.value.ru           # отказ есть и по-английски
+
+
+def test_texts_cover_every_law(agent, tmp_path):
+    """Каждый закон, который проверяет наблюдатель, стоит в группе экрана и
+    пересказан на обоих языках; у каждого сценария — оба языка, и слова
+    влезают в то, что агент читает."""
+    from app import texts
+    from app.runner import WORDS_AGENT_READS
+    run = _run(settings_from({"contour": "сомкнутый", "model": INSTALL_CHECK, "words": _words()}), agent, tmp_path)
+    keys = [x["key"] for g in run.snapshot()["result"]["groups"] for x in g["items"]]
+    grouped = {k for g in texts.GROUPS for k in g["keys"]}
+    assert set(keys) <= grouped and len(keys) == 40
+    assert all(k in texts.LAWS and all(texts.LAWS[k]) for k in grouped)
+    for sc in texts.SCENARIOS:
+        for lang in ("ru", "en"):
+            assert sc[lang]["title"] and sc[lang]["about"]
+            assert len(sc[lang]["words"].encode()) <= WORDS_AGENT_READS, (sc["id"], lang)
+
+
+def test_download_target():
+    from app.server import App
+    url, name = App.download_target("https://huggingface.co/a/b/blob/main/x-Q4.gguf")
+    assert url == "https://huggingface.co/a/b/resolve/main/x-Q4.gguf" and name == "x-Q4.gguf"
+    for bad in ("http://huggingface.co/a.gguf", "https://example.com/a.bin", "https://example.com/.gguf"):
+        with pytest.raises(Refusal):
+            App.download_target(bad)
 
 
 def test_screen_token_and_host(monkeypatch):

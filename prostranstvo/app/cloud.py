@@ -79,11 +79,16 @@ class Cloud:
 
 
 def _human(code: int, body: str) -> str:
-    what = {400: "запрос не принят", 401: "ключ не принят", 402: "на счёте у поставщика нет денег",
-            403: "доступ запрещён", 404: "нет такой модели или адреса", 408: "поставщик не дождался",
-            413: "вопрос слишком длинный для поставщика", 429: "поставщик просит подождать",
-            500: "ошибка у поставщика", 502: "ошибка у поставщика", 503: "поставщик недоступен",
-            529: "поставщик перегружен"}.get(code, "ошибка")
+    """Причина для человека — сразу на двух языках экрана."""
+    what = {400: "запрос не принят / request rejected", 401: "ключ не принят / key not accepted",
+            402: "на счёте у поставщика нет денег / no money on the account",
+            403: "доступ запрещён / access denied", 404: "нет такой модели или адреса / no such model or address",
+            408: "поставщик не дождался / the provider timed out",
+            413: "вопрос слишком длинный для поставщика / the question is too long for the provider",
+            429: "поставщик просит подождать / the provider asks to wait",
+            500: "ошибка у поставщика / provider error", 502: "ошибка у поставщика / provider error",
+            503: "поставщик недоступен / provider unavailable",
+            529: "поставщик перегружен / provider overloaded"}.get(code, "ошибка / error")
     short = " ".join(body.split())[:300]
     return f"{what} ({code}){': ' + short if short else ''}"
 
@@ -136,12 +141,12 @@ def ask(c: Cloud, question: str, deadline: float) -> tuple[str, dict]:
     """Ответ облака на один вопрос. deadline — момент time.monotonic(), к
     которому ответ нужен: повторы при 429 и 5xx — только до него. Не вышло —
     CloudError с причиной для человека."""
-    pause, last = 1.0, "не было ни одной попытки"
+    pause, last = 1.0, "не было ни одной попытки / no attempt was made"
     adapted = False
     while True:
         left = deadline - time.monotonic()
         if left <= 0.5:
-            raise CloudError(f"срок ответа вышел; последняя причина: {last}")
+            raise CloudError(f"срок ответа вышел / timed out; {last}")
         path, body = _body(c, question)
         try:
             return _text(c, _request(c, "POST", path, body, left))
@@ -161,9 +166,9 @@ def ask(c: Cloud, question: str, deadline: float) -> tuple[str, dict]:
             if e.code not in RETRY_CODES:
                 raise CloudError(last)
         except (urllib.error.URLError, TimeoutError, OSError) as e:
-            last = f"нет связи: {getattr(e, 'reason', e)}"
+            last = f"нет связи / no connection: {getattr(e, 'reason', e)}"
         except (ValueError, KeyError, IndexError) as e:
-            raise CloudError(f"непонятный ответ поставщика: {e}")
+            raise CloudError(f"непонятный ответ поставщика / unreadable provider answer: {e}")
         time.sleep(min(pause, max(0.0, deadline - time.monotonic() - 0.5)))
         pause = min(pause * 2, 8.0)
 
@@ -175,7 +180,7 @@ def list_models(c: Cloud, timeout: float = 20.0) -> list[str]:
     except urllib.error.HTTPError as e:
         raise CloudError(_human(e.code, e.read().decode("utf-8", "replace") if e.fp else ""))
     except (urllib.error.URLError, TimeoutError, OSError) as e:
-        raise CloudError(f"нет связи: {getattr(e, 'reason', e)}")
+        raise CloudError(f"нет связи / no connection: {getattr(e, 'reason', e)}")
     items = r.get("data") or r.get("models") or []
     names = [x.get("id") or x.get("name") for x in items if isinstance(x, dict)]
     return sorted(n for n in names if n)

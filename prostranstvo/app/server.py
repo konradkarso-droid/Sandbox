@@ -35,25 +35,12 @@ from pathlib import Path
 
 from app import seal as sealmod
 from app.cloud import PRESETS, Cloud, CloudError, check, list_models
-from app.runner import (ANSWER_MAX, MODELS, RUNS, WORDS_AGENT_READS, Run, agent_module, settings_from,
+from app import texts
+from app.runner import (ANSWER_MAX, MODELS, RUNS, WORDS_AGENT_READS, Refusal, Run, agent_module, settings_from,
                         zip_run)
-from experiments.pilot9 import SCENARIOS
 from sandbox.model9 import can_unshare
 
 UI = Path(__file__).resolve().parent / "ui" / "index.html"
-
-# Модели для кнопки «Скачать». Хеши сверены с опубликованными в репозиториях
-# Qwen на Hugging Face; файл с другим хешем не кладётся в папку моделей.
-DOWNLOADS = [
-    {"id": "qwen2.5-0.5b", "name": "Qwen2.5 0.5B", "size_mb": 491,
-     "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
-     "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-     "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"},
-    {"id": "qwen2.5-1.5b", "name": "Qwen2.5 1.5B", "size_mb": 1066,
-     "file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-     "url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
-     "sha256": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e"},
-]
 
 KEY_ENVS = sorted({p["key_env"] for p in PRESETS if p["key_env"]} | {"PROSTRANSTVO_KEY"})
 
@@ -86,11 +73,12 @@ class App:
             "seal": self.seal, "unshare": self.unshare,
             "closed_ok": self.seal["сомкнутый"] is None or self.unshare,
             "llama": importlib.util.find_spec("llama_cpp") is not None,
-            "models": [{"name": p.name, "mb": round(p.stat().st_size / 2 ** 20)} for p in files],
-            "downloads": [{k: d[k] for k in ("id", "name", "size_mb", "file")} for d in DOWNLOADS],
+            "models": [{"name": p.name, "path": str(p), "mb": round(p.stat().st_size / 2 ** 20)} for p in files],
+            "models_dir": str(MODELS),
             "presets": [{**p, "has_env_key": bool(p["key_env"] and p["key_env"] in self.env_keys)} for p in PRESETS],
             "generic_env_key": "PROSTRANSTVO_KEY" in self.env_keys,
-            "scenarios": SCENARIOS, "words_bytes": WORDS_AGENT_READS, "answer_max": ANSWER_MAX,
+            "scenarios": texts.SCENARIOS, "groups": [{k: g[k] for k in ("id", "ru", "en")} for g in texts.GROUPS],
+            "laws": texts.LAWS, "words_bytes": WORDS_AGENT_READS, "answer_max": ANSWER_MAX,
             "agent": self.agent[1] if self.agent else None, "agent_error": self.agent_error,
             "runs_dir": str(RUNS),
         }
@@ -116,9 +104,9 @@ class App:
     def start(self, body: dict) -> dict:
         with self.lock:
             if self.run and not self.run.finished.is_set():
-                raise ValueError("прогон уже идёт")
+                raise Refusal("прогон уже идёт", "a run is already in progress")
             if not self.agent:
-                raise ValueError(self.agent_error or "агент не собран")
+                raise Refusal(self.agent_error or "агент не собран", self.agent_error or "the agent is not built")
             if isinstance(body.get("cloud"), dict):
                 body = {**body, "cloud": {**body["cloud"], "key": self.key_for(body["cloud"])}}
             s = settings_from(body)
@@ -126,27 +114,44 @@ class App:
             self.run.start()
             return {"id": self.run.stamp}
 
-    # ---- загрузка модели
-    def download(self, ident: str) -> None:
-        d = next((x for x in DOWNLOADS if x["id"] == ident), None)
-        if d is None:
-            raise ValueError("нет такой модели")
-        with self.lock:
-            cur = self.downloads.get(ident)
-            if cur and cur["state"] == "идёт":
-                return
-            self.downloads[ident] = {"state": "идёт", "done": 0, "total": d["size_mb"] * 2 ** 20, "error": None}
-        threading.Thread(target=self._download, args=(d,), daemon=True).start()
+    # ---- загрузка модели по ссылке
+    @staticmethod
+    def download_target(url: str) -> tuple[str, str]:
+        """Ссылка на файл GGUF → (ссылка для скачивания, имя файла). Ссылку
+        Hugging Face на страницу файла («/blob/») превращает в ссылку на сам
+        файл («/resolve/»)."""
+        url = str(url or "").strip()
+        if not url.startswith("https://"):
+            raise Refusal("ссылка должна начинаться с https://", "the link must start with https://")
+        url = url.replace("/blob/", "/resolve/", 1)
+        name = urllib.parse.unquote(urllib.parse.urlsplit(url).path.rsplit("/", 1)[-1])
+        if not name.lower().endswith(".gguf") or "/" in name or name.startswith("."):
+            raise Refusal("ссылка должна вести на файл .gguf", "the link must point to a .gguf file")
+        return url, name
 
-    def _download(self, d: dict) -> None:
-        st = self.downloads[d["id"]]
+    def download(self, url: str) -> str:
+        url, name = self.download_target(url)
+        with self.lock:
+            cur = self.downloads.get(name)
+            if cur and cur["state"] == "идёт":
+                return name
+            if (MODELS / name).exists():
+                raise Refusal(f"файл {name} уже есть в папке моделей", f"{name} is already in the models folder")
+            self.downloads[name] = {"state": "идёт", "done": 0, "total": 0, "error": None, "sha256": None}
+        threading.Thread(target=self._download, args=(url, name), daemon=True).start()
+        return name
+
+    def _download(self, url: str, name: str) -> None:
+        """Скачивает в папку моделей. Хеш файла считается и показывается, но
+        не сверяется: для произвольной ссылки сверять не с чем."""
+        st = self.downloads[name]
         MODELS.mkdir(exist_ok=True)
-        part = MODELS / (d["file"] + ".part")
+        part = MODELS / (name + ".part")
         h = hashlib.sha256()
         try:
-            req = urllib.request.Request(d["url"], headers={"user-agent": "prostranstvo-sandbox"})
+            req = urllib.request.Request(url, headers={"user-agent": "prostranstvo-sandbox"})
             with urllib.request.urlopen(req, timeout=60) as r, open(part, "wb") as f:
-                st["total"] = int(r.headers.get("content-length") or st["total"])
+                st["total"] = int(r.headers.get("content-length") or 0)
                 while True:
                     chunk = r.read(1 << 20)
                     if not chunk:
@@ -154,11 +159,11 @@ class App:
                     f.write(chunk)
                     h.update(chunk)
                     st["done"] += len(chunk)
-            if h.hexdigest() != d["sha256"]:
-                part.unlink(missing_ok=True)
-                raise RuntimeError("хеш файла не совпал с опубликованным — файл удалён")
-            part.rename(MODELS / d["file"])
-            st["state"] = "готово"
+            with open(part, "rb") as f:
+                if f.read(4) != b"GGUF":
+                    raise RuntimeError("это не файл GGUF / not a GGUF file")
+            part.rename(MODELS / name)
+            st.update(state="готово", sha256=h.hexdigest())
         except Exception as e:
             part.unlink(missing_ok=True)
             st.update(state="ошибка", error=str(e)[:300])
@@ -205,7 +210,8 @@ def make_handler(app: App):
             u = urllib.parse.urlsplit(self.path)
             q = urllib.parse.parse_qs(u.query)
             if not self._allowed(q):
-                self._send(403, "Открой ссылку, которую напечатал start.py в терминале.".encode(),
+                self._send(403, "Открой ссылку, которую напечатал start.py в терминале.\n"
+                                "Open the link that start.py printed in the terminal.".encode(),
                            "text/plain; charset=utf-8")
                 return
             if u.path == "/":
@@ -250,12 +256,13 @@ def make_handler(app: App):
                 elif u.path == "/api/cloud/models":
                     self._json({"models": list_models(app.cloud_of(body))[:2000]})
                 elif u.path == "/api/download":
-                    app.download(str(body.get("id")))
-                    self._json({"ok": True})
+                    self._json({"ok": True, "name": app.download(str(body.get("url")))})
                 else:
                     self._json({"error": "нет такого адреса"}, 404)
             except CloudError as e:
                 self._json({"error": str(e)}, 502)
+            except Refusal as e:
+                self._json({"error": e.ru, "error_en": e.en}, 400)
             except (ValueError, TypeError) as e:
                 self._json({"error": str(e)}, 400)
 
@@ -266,11 +273,11 @@ def serve(port: int = 8737, open_browser: bool = True) -> None:
     app = App(port)
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), make_handler(app))
     url = f"http://127.0.0.1:{port}/?t={app.token}"
-    print("\nПространство — песочница «Теории среды»")
-    print(f"Экран: {url}")
+    print("\nПространство — песочница для ИИ-агентов / Prostranstvo — a sandbox for AI agents")
+    print(f"Экран / Screen: {url}")
     if app.agent_error:
         print(f"Внимание: {app.agent_error}")
-    print("Остановить: Ctrl+C\n", flush=True)
+    print("Остановить / Stop: Ctrl+C\n", flush=True)
     if open_browser:
         try:
             import webbrowser

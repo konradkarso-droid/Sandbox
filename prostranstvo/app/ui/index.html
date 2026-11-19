@@ -3,186 +3,250 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Пространство — песочница</title>
+<title>Пространство — песочница для ИИ-агентов</title>
 <!--
-  Экран песочницы «Пространство». Цвета — из приложения агента
-  (docs/pesochnitsa_specifikatsiya.md, §6). Раскладка под левую руку, как у
-  агента: «Пуск» внизу слева, «Стоп» — красный, в дальнем правом верхнем
-  углу; рядом со «Стоп» нет ничего, что жмут часто.
+  Экран песочницы «Пространство». Раскладка своя, для компьютера: настройка
+  слева, прогон справа; на узком экране — одно под другим. От приложения
+  агента взяты только цвета (docs/pesochnitsa_specifikatsiya.md, §6).
+  Два языка: строки экрана — в словаре T ниже; сценарии и законы приходят
+  с сервера (app/texts.py) сразу на обоих.
   Страница ничего не решает за среду: она шлёт настройки и показывает то,
   что прочитано из журнала. Законы проверяет наблюдатель.
 -->
 <style>
   :root {
     --page: #EAF3F6; --card: #FFFFFF; --text: #123540; --text2: #3A6470; --muted: #7FA3AE;
-    --primary: #17697B; --stop: #D6453E; --alarm-bg: #FBE3E1; --alarm: #A3231D;
-    --model: #5B4B9E; --block: #EDF3F4; --rule: #9BB0B5; --na: #FCE8B8; --off: #C9DAE0;
+    --primary: #17697B; --primary-soft: #DDF0F2; --stop: #D6453E; --alarm-bg: #FBE3E1; --alarm: #A3231D;
+    --model: #5B4B9E; --model-soft: #ECE9F7; --block: #EDF3F4; --rule: #9BB0B5; --na: #FCE8B8; --off: #C9DAE0;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--page); color: var(--text);
-    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif; }
-  .wrap { max-width: 860px; margin: 0 auto; padding: 14px 14px 96px; }
-  button { font: inherit; border: 0; border-radius: 10px; cursor: pointer; }
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { border: 0; cursor: pointer; border-radius: 8px; }
   button:disabled { cursor: default; opacity: .45; }
-  .top { display: flex; align-items: center; gap: 8px; }
-  .top .title { flex: 1; text-align: center; font-weight: 600; letter-spacing: .2px; }
-  .top .title small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
-  .ghost { background: transparent; color: var(--muted); padding: 8px 10px; font-size: 13px; }
-  .ghost.dark { color: var(--primary); background: var(--card); }
-  .stop { background: var(--stop); color: #fff; padding: 9px 18px; font-size: 14px; font-weight: 600; }
-  .progress { font: 12px/1.4 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; color: var(--primary);
-    margin: 8px 2px 0; min-height: 17px; }
-  .banner { background: var(--alarm-bg); color: var(--alarm); border-radius: 10px; padding: 10px 12px;
-    margin-top: 10px; font-size: 13px; white-space: pre-wrap; }
-  .note { background: var(--na); color: var(--text); border-radius: 10px; padding: 10px 12px; margin-top: 10px;
-    font-size: 13px; }
-  .card { background: var(--card); border-radius: 14px; padding: 14px; margin-top: 12px; }
-  .label { font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 8px; }
-  .hint { color: var(--text2); font-size: 13px; margin: 8px 0 0; }
-  .muted { color: var(--muted); }
-  .seg { display: flex; background: var(--block); border-radius: 12px; padding: 4px; gap: 4px; }
-  .seg button { flex: 1; background: transparent; color: var(--text2); padding: 10px 8px; text-align: center; }
-  .seg button small { display: block; font-size: 12px; color: var(--muted); }
-  .seg button.on { background: var(--primary); color: #fff; }
-  .seg button.on small { color: #d8ecef; }
-  .seg button:disabled { opacity: .5; }
-  .opt { display: flex; gap: 10px; align-items: flex-start; padding: 8px 4px; border-top: 1px solid var(--block); }
-  .opt:first-child { border-top: 0; }
-  .opt input { margin-top: 4px; accent-color: var(--primary); }
-  .opt small { display: block; color: var(--muted); }
-  input[type=text], input[type=password], input[type=number], select, textarea {
-    width: 100%; font: inherit; color: var(--text); background: var(--block); border: 1px solid transparent;
-    border-radius: 10px; padding: 9px 10px; margin-top: 6px; }
-  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); background: #fff; }
-  textarea { resize: vertical; min-height: 74px; }
-  .row { display: flex; gap: 8px; align-items: center; }
-  .row > input { flex: 1; }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { background: var(--block); color: var(--text2); padding: 6px 10px; font-size: 13px; border-radius: 999px; }
-  .chip.on { background: var(--primary); color: #fff; }
-  .counter { font-size: 12px; color: var(--muted); text-align: right; margin-top: 4px; }
-  .counter.over { color: var(--alarm); }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .grid label { font-size: 13px; color: var(--text2); }
-  .dl { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .bar { position: fixed; left: 0; right: 0; bottom: 0; background: linear-gradient(transparent, var(--page) 30%);
-    padding: 18px 14px 14px; }
-  .bar .in { max-width: 860px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
-  .primary { background: var(--primary); color: #fff; padding: 13px 34px; font-size: 16px; font-weight: 600;
-    box-shadow: 0 2px 8px rgba(23,105,123,.25); }
-  .hidden { display: none !important; }
-  .contours { display: grid; grid-template-columns: 1fr; gap: 12px; }
-  @media (min-width: 760px) { .contours.two { grid-template-columns: 1fr 1fr; } }
-  .stats { font-size: 13px; color: var(--text2); }
-  .stats b { color: var(--text); font-weight: 600; }
-  .turn { border-top: 1px solid var(--block); padding: 8px 0; }
-  .turn .head { display: flex; gap: 8px; cursor: pointer; }
-  .turn .n { color: var(--muted); font-size: 12px; min-width: 26px; padding-top: 2px; }
-  .turn .move { color: var(--model); font-weight: 600; word-break: break-word; }
-  .turn .move.bad { color: var(--muted); font-weight: 400; font-style: italic; }
-  .turn .secs { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
-  .eff { font-size: 13px; color: var(--text2); margin: 2px 0 0 34px; }
-  .eff.bad { color: var(--alarm); }
-  .eff.agent { color: var(--muted); font-style: italic; }
-  .full { margin: 8px 0 0 34px; }
-  pre { background: var(--block); border-left: 3px solid var(--rule); border-radius: 6px; padding: 8px 10px;
-    font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-word;
-    max-height: 320px; overflow: auto; margin: 4px 0 8px; color: var(--text); }
-  pre.model { border-left-color: var(--model); }
-  .verdict-head { font-size: 17px; font-weight: 600; padding: 12px 14px; border-radius: 12px; }
-  .verdict-head.ok { background: #DDF0F2; color: var(--primary); }
-  .verdict-head.bad { background: var(--alarm-bg); color: var(--alarm); }
-  .group { border-top: 1px solid var(--block); padding: 8px 0; }
-  .group > .gh { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-  .dot.держится { background: var(--primary); } .dot.нарушен { background: var(--stop); }
-  .dot.не.применим, .dot.na { background: #E8C878; }
-  .law { font-size: 13px; color: var(--text2); margin: 4px 0 0 18px; display: flex; gap: 8px; }
-  .law .k { font-weight: 600; color: var(--text); min-width: 52px; }
-  .law .d { color: var(--muted); }
   a { color: var(--primary); }
-  .tiny { font-size: 12px; }
+  .hidden { display: none !important; }
+
+  header { background: var(--card); border-bottom: 1px solid var(--block); }
+  header .in { max-width: 1240px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; gap: 14px; }
+  .mark { width: 30px; height: 30px; border-radius: 8px; background: var(--primary); position: relative; flex: none; }
+  .mark::after { content: ""; position: absolute; inset: 8px; border: 2px solid #fff; border-radius: 3px; }
+  .brand b { font-size: 17px; }
+  .brand span { color: var(--text2); margin-left: 8px; }
+  .spacer { flex: 1; }
+  .link { background: none; color: var(--primary); padding: 6px 8px; }
+  .lang { display: flex; background: var(--block); border-radius: 8px; padding: 3px; }
+  .lang button { background: none; padding: 4px 10px; font-size: 13px; color: var(--text2); }
+  .lang button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 2px rgba(18,53,64,.15); }
+
+  main { max-width: 1240px; margin: 0 auto; padding: 20px; display: grid; gap: 20px;
+    grid-template-columns: 420px 1fr; align-items: start; }
+  @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+
+  .card { background: var(--card); border-radius: 12px; padding: 18px; }
+  .card + .card { margin-top: 14px; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  .step { color: var(--muted); font-weight: 400; margin-right: 6px; }
+  .lead { color: var(--text2); margin: 0 0 12px; font-size: 14px; }
+  .small { font-size: 13px; color: var(--text2); }
+
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--block); border-radius: 10px; padding: 4px; margin-top: 8px; }
+  .seg button { background: none; padding: 9px 6px; color: var(--text2); border-radius: 7px; text-align: center; }
+  .seg button b { display: block; font-weight: 600; }
+  .seg button span { display: block; font-size: 12px; color: var(--muted); }
+  .seg button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(18,53,64,.15); }
+  .seg button.on b { color: var(--primary); }
+  .explain { background: var(--block); border-radius: 8px; padding: 10px 12px; font-size: 13px; color: var(--text2); margin: 12px 0; }
+
+  label.f { display: block; font-size: 13px; color: var(--text2); margin-top: 12px; }
+  input[type=text], input[type=password], input[type=number], input[type=url], select, textarea {
+    width: 100%; background: var(--card); border: 1px solid var(--off); border-radius: 8px; padding: 8px 10px; margin-top: 4px; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+  textarea { resize: vertical; min-height: 90px; }
+  .row { display: flex; gap: 8px; align-items: stretch; }
+  .row > input { flex: 1; }
+  .btn2 { background: var(--block); color: var(--primary); padding: 8px 12px; margin-top: 4px; white-space: nowrap; }
+  .btn2:hover:not(:disabled) { background: var(--primary-soft); }
+  .out { font-size: 13px; margin-top: 6px; color: var(--text2); min-height: 1em; word-break: break-word; }
+  .out.bad { color: var(--alarm); }
+  .out.good { color: var(--primary); }
+
+  .choice { display: flex; gap: 10px; padding: 10px 12px; border: 1px solid var(--block); border-radius: 10px; margin-top: 8px; cursor: pointer; }
+  .choice:hover { border-color: var(--off); }
+  .choice.on { border-color: var(--primary); background: #F6FBFC; }
+  .choice input { accent-color: var(--primary); margin-top: 3px; }
+  .choice b { display: block; font-weight: 600; }
+  .choice span { display: block; font-size: 13px; color: var(--text2); }
+  .counter { text-align: right; font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .counter.over { color: var(--alarm); }
+
+  details.params summary { cursor: pointer; font-weight: 600; list-style: none; }
+  details.params summary::-webkit-details-marker { display: none; }
+  details.params summary::before { content: "▸"; color: var(--muted); margin-right: 8px; }
+  details.params[open] summary::before { content: "▾"; }
+  .param .hint { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  .start { width: 100%; background: var(--primary); color: #fff; font-size: 16px; font-weight: 600; padding: 13px; margin-top: 16px; border-radius: 10px; }
+  .start:hover:not(:disabled) { filter: brightness(1.08); }
+  .why { font-size: 13px; color: var(--text2); margin-top: 8px; text-align: center; min-height: 1em; }
+
+  .how ol { margin: 8px 0 0; padding-left: 22px; }
+  .how li { margin-bottom: 8px; }
+  .how .em { color: var(--primary); font-weight: 600; }
+  .note { border-radius: 10px; padding: 10px 14px; font-size: 14px; margin-bottom: 14px; white-space: pre-wrap; }
+  .note.warn { background: var(--na); }
+  .note.bad { background: var(--alarm-bg); color: var(--alarm); }
+
+  .status { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .status .what { flex: 1; min-width: 220px; }
+  .status .state { font-weight: 600; }
+  .status .act { color: var(--primary); font-size: 14px; font-variant-numeric: tabular-nums; }
+  .stopbtn { background: var(--card); color: var(--stop); border: 1.5px solid var(--stop); padding: 8px 14px; font-weight: 600; }
+  .stopbtn:hover:not(:disabled) { background: var(--alarm-bg); }
+  .nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 14px; }
+  .num { background: var(--block); border-radius: 10px; padding: 10px 12px; }
+  .num .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .num .k { font-size: 12px; color: var(--text2); }
+  .bar { height: 6px; background: var(--off); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--primary); }
+
+  .tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+  .tabs button { background: var(--block); color: var(--text2); padding: 6px 12px; }
+  .tabs button.on { background: var(--primary); color: #fff; }
+  .turn { border-top: 1px solid var(--block); padding: 12px 0; }
+  .turn:first-child { border-top: 0; }
+  .turn .top { display: flex; align-items: baseline; gap: 10px; }
+  .turn .no { color: var(--muted); font-size: 13px; min-width: 52px; flex: none; }
+  .turn .secs { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .said { font: 13.5px/1.4 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; background: var(--model-soft);
+    color: var(--model); padding: 2px 8px; border-radius: 6px; word-break: break-word; }
+  .said.none { background: var(--block); color: var(--muted); font-family: inherit; font-style: italic; }
+  .means { margin: 6px 0 0 62px; font-size: 14px; }
+  .fx { margin: 4px 0 0 62px; font-size: 14px; }
+  .fx div { padding-left: 18px; position: relative; }
+  .fx div::before { position: absolute; left: 0; }
+  .fx .ok::before { content: "✓"; color: var(--primary); }
+  .fx .bad { color: var(--alarm); }
+  .fx .bad::before { content: "✗"; }
+  .fx .info::before { content: "·"; color: var(--muted); }
+  .fx .agent { color: var(--muted); font-style: italic; }
+  .fx .agent::before { content: "↳"; }
+  details.raw { margin: 6px 0 0 62px; }
+  details.raw summary { font-size: 12px; color: var(--muted); cursor: pointer; }
+  pre { background: var(--block); border-left: 3px solid var(--rule); border-radius: 6px; padding: 8px 10px; margin: 6px 0;
+    font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow: auto; }
+  pre.m { border-left-color: var(--model); }
+  .pre0 { color: var(--text2); font-size: 14px; }
+
+  .verdict { border-radius: 10px; padding: 14px 16px; }
+  .verdict.ok { background: var(--primary-soft); color: var(--primary); }
+  .verdict.bad { background: var(--alarm-bg); color: var(--alarm); }
+  .verdict b { font-size: 18px; display: block; }
+  .group { border-top: 1px solid var(--block); padding: 10px 0; }
+  .group .gh { display: flex; gap: 10px; align-items: center; cursor: pointer; }
+  .group .gh span.t { font-weight: 600; }
+  .group .gh span.c { margin-left: auto; font-size: 13px; color: var(--muted); }
+  .group .ga { font-size: 13px; color: var(--text2); margin: 2px 0 0 20px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: #E2C46E; }
+  .dot.h { background: var(--primary); } .dot.b { background: var(--stop); }
+  .law { display: flex; gap: 10px; margin: 8px 0 0 20px; font-size: 14px; }
+  .law .key { color: var(--muted); font-size: 12px; min-width: 50px; padding-top: 2px; margin-left: auto; }
+  .law .st { font-size: 12px; color: var(--muted); }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="top">
-    <button id="btnDetails" class="ghost">Подробно ▾</button>
-    <div class="title">Пространство<small>песочница «Теории среды»</small></div>
-    <button id="btnStop" class="stop" disabled>Стоп</button>
-  </div>
-  <div id="progress" class="progress"></div>
-  <div id="banner" class="banner hidden"></div>
-  <div id="note" class="note hidden"></div>
+<header><div class="in">
+  <div class="mark"></div>
+  <div class="brand"><b data-t="title"></b><span data-t="subtitle"></span></div>
+  <div class="spacer"></div>
+  <button class="link" id="btnHow" data-t="how_link"></button>
+  <div class="lang"><button data-lang="ru">RU</button><button data-lang="en">EN</button></div>
+</div></header>
 
-  <div id="setup">
-    <section class="card">
-      <div class="label">Контур</div>
+<main>
+  <section id="setup">
+    <div class="card">
+      <h2><span class="step">1</span><span data-t="model_h"></span></h2>
       <div class="seg" id="seg">
-        <button data-c="сомкнутый">Сомкнутый<small>модель здесь</small></button>
-        <button data-c="разомкнутый">Разомкнутый<small>облачная модель</small></button>
+        <button data-c="сомкнутый"><b data-t="local"></b><span data-t="local_sub"></span></button>
+        <button data-c="разомкнутый"><b data-t="cloud"></b><span data-t="cloud_sub"></span></button>
       </div>
-      <p class="hint" id="contourHint"></p>
+      <div class="explain" id="contourExplain"></div>
 
-      <div id="closedBox">
+      <div id="localBox">
         <div id="localList"></div>
-        <div class="dl" id="dlButtons"></div>
-        <p class="hint" id="llamaHint"></p>
+        <label class="f"><span data-t="path_l"></span>
+          <input type="text" id="path" spellcheck="false" placeholder="/home/…/model.gguf"></label>
+        <label class="f"><span data-t="url_l"></span>
+          <div class="row"><input type="url" id="url" spellcheck="false" placeholder="https://huggingface.co/…/model.gguf">
+            <button class="btn2" id="btnDl" data-t="download"></button></div></label>
+        <div class="out" id="dlOut"></div>
+        <div class="out bad" id="engineOut"></div>
       </div>
 
-      <div id="openBox" class="hidden">
-        <select id="preset"></select>
-        <input type="text" id="base" placeholder="адрес, например https://openrouter.ai/api/v1">
-        <div class="row">
-          <input type="text" id="model" list="modelList" placeholder="имя модели">
-          <button id="btnModels" class="ghost dark">Список</button>
-        </div>
+      <div id="cloudBox" class="hidden">
+        <label class="f"><span data-t="provider_l"></span><select id="preset"></select></label>
+        <label class="f"><span data-t="address_l"></span><input type="text" id="base" spellcheck="false"></label>
+        <label class="f"><span data-t="modelname_l"></span>
+          <div class="row"><input type="text" id="model" list="modelList" spellcheck="false">
+            <button class="btn2" id="btnModels" data-t="list"></button></div></label>
         <datalist id="modelList"></datalist>
-        <input type="password" id="key" placeholder="ключ — не сохраняется" autocomplete="off">
-        <p class="hint" id="keyHint"></p>
-        <div class="row" style="margin-top:8px">
-          <button id="btnCheck" class="ghost dark">Проверить связь</button>
-          <span id="checkOut" class="hint" style="margin:0"></span>
-        </div>
+        <label class="f"><span data-t="key_l"></span><input type="password" id="key" autocomplete="off"></label>
+        <div class="out" id="keyOut"></div>
+        <button class="btn2" id="btnCheck" data-t="check"></button>
+        <div class="out" id="checkOut"></div>
       </div>
-    </section>
+    </div>
 
-    <section class="card">
-      <div class="label">Слова агенту</div>
-      <div class="chips" id="chips"></div>
-      <textarea id="words"></textarea>
+    <div class="card">
+      <h2><span class="step">2</span><span data-t="what_h"></span></h2>
+      <p class="lead" data-t="what_lead"></p>
+      <div id="scenarios"></div>
+      <label class="f"><span data-t="words_l"></span><textarea id="words"></textarea></label>
       <div class="counter" id="wordsCount"></div>
-    </section>
+    </div>
 
-    <section class="card hidden" id="details">
-      <div class="label">Подробно</div>
-      <div class="grid">
-        <label>Бюджет агента<input type="number" id="budget" value="625" min="20"></label>
-        <label>Предел ответа модели, байт<input type="number" id="answer" value="1024" min="16" max="1024"></label>
-        <label>Срок ответа модели, с (0 — сам)<input type="number" id="timeout" value="0" min="0" max="3600"></label>
-        <label>Задачи: номер набора<input type="number" id="seed" value="1" min="0"></label>
-        <label>Второй агент
-          <select id="second"><option value="молчит">молчит (сосед есть, но не ходит)</option>
-            <option value="такой же">такой же, с той же моделью</option></select></label>
-        <label id="tokLabel">Токенов на ответ облака (пусто — половина предела)<input type="number" id="maxTokens" min="16"></label>
-      </div>
-      <p class="hint" id="envInfo"></p>
-    </section>
-  </div>
-
-  <section id="live" class="hidden">
-    <div class="contours" id="contours"></div>
+    <div class="card">
+      <details class="params"><summary data-t="params_h"></summary>
+        <div class="param"><label class="f"><span data-t="budget_l"></span><input type="number" id="budget" value="625" min="20"></label>
+          <div class="hint" data-t="budget_h"></div></div>
+        <div class="param"><label class="f"><span data-t="answer_l"></span><input type="number" id="answer" value="1024" min="16" max="1024"></label>
+          <div class="hint" data-t="answer_h"></div></div>
+        <div class="param"><label class="f"><span data-t="timeout_l"></span><input type="number" id="timeout" value="0" min="0" max="3600"></label>
+          <div class="hint" data-t="timeout_h"></div></div>
+        <div class="param"><label class="f"><span data-t="second_l"></span>
+          <select id="second"><option value="молчит" data-t="second_idle"></option><option value="такой же" data-t="second_acts"></option></select></label>
+          <div class="hint" data-t="second_h"></div></div>
+        <div class="param"><label class="f"><span data-t="seed_l"></span><input type="number" id="seed" value="1" min="0"></label>
+          <div class="hint" data-t="seed_h"></div></div>
+        <div class="param" id="tokParam"><label class="f"><span data-t="tokens_l"></span><input type="number" id="maxTokens" min="16"></label>
+          <div class="hint" data-t="tokens_h"></div></div>
+      </details>
+      <button class="start" id="btnStart" data-t="start"></button>
+      <div class="why" id="why"></div>
+    </div>
   </section>
-  <section id="verdict" class="card hidden"></section>
-</div>
 
-<div class="bar">
-  <div class="in">
-    <button id="btnStart" class="primary">Пуск</button>
-    <button id="btnAgain" class="ghost dark hidden">Новый прогон</button>
-    <span id="startHint" class="hint" style="margin:0"></span>
-  </div>
-</div>
+  <section id="right">
+    <div id="notes"></div>
+    <div class="card how" id="how"></div>
+    <div class="card hidden" id="statusCard">
+      <div class="status">
+        <div class="what"><div class="state" id="state"></div><div class="act" id="act"></div></div>
+        <button class="stopbtn hidden" id="btnStop" data-t="stop"></button>
+      </div>
+      <div class="nums" id="nums"></div>
+    </div>
+    <div class="card hidden" id="verdictCard"></div>
+    <div class="card hidden" id="movesCard">
+      <h2 data-t="moves_h"></h2>
+      <p class="lead" data-t="moves_lead"></p>
+      <div class="tabs hidden" id="tabs"></div>
+      <div id="moves"></div>
+    </div>
+  </section>
+</main>
 
 <script>
 "use strict";
@@ -190,290 +254,586 @@ const TOKEN = "__TOKEN__";
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const bytes = (s) => new TextEncoder().encode(s).length;
-const kb = (n) => n < 1024 ? `${n} Б` : `${(n / 1024).toFixed(1).replace(".", ",")} КБ`;
+const fill = (s, p) => String(s).replace(/\{(\w+)\}/g, (_, k) => (p && p[k] !== undefined && p[k] !== null ? p[k] : ""));
 
+// ---------------------------------------------------------------- строки экрана
+const T = {
+ ru: {
+  title: "Пространство", subtitle: "песочница для ИИ-агентов", how_link: "Как это устроено",
+  model_h: "Модель", local: "Локальная", local_sub: "файл GGUF на этом компьютере", cloud: "Облачная",
+  cloud_sub: "по адресу и ключу",
+  local_explain: "Модель работает внутри песочницы, на этом компьютере. Сеть у неё отнята системой: вопросы агента никуда не уходят.",
+  local_noseal: "Здесь системе нечем отнять сеть у модели, поэтому локальная модель недоступна. Облачная работает.",
+  cloud_explain: "Модель у поставщика или в отдельной программе на этом компьютере (Ollama, LM Studio). Вопросы агента уходят ей по сети — каждый оплачен из бюджета агента и записан в журнал до отправки. У самой песочницы сети нет.",
+  found: "Найдено в папке моделей:", nofound: "В папке моделей пока нет файлов. Укажи путь к своему файлу или скачай по ссылке.",
+  path_l: "Или путь к файлу .gguf на этом компьютере", url_l: "Или скачать по ссылке — например, с huggingface.co",
+  download: "Скачать", dl_going: "Качаю {name}: {pct}", dl_done: "Скачано: {name}. Контрольная сумма SHA-256: {sha}",
+  dl_err: "Не скачалось: {e}",
+  engine: "Для файлов моделей нужен движок. Один раз, в терминале: python3 start.py --local",
+  provider_l: "Поставщик", address_l: "Адрес", modelname_l: "Имя модели", list: "Список", key_l: "Ключ доступа",
+  key_ph: "не сохраняется", key_none: "ключ не нужен",
+  key_env: "Ключ взят из переменной {env} — поле можно оставить пустым.",
+  key_hint: "Ключ живёт в памяти программы до конца прогона и никуда не пишется. Можно задать его до запуска переменной {env}.",
+  check: "Проверить связь", checking: "Спрашиваю…", check_ok: "Связь есть, модель ответила: «{a}»", check_no: "Нет связи: {e}",
+  listing: "Спрашиваю список…", listed: "Моделей: {n}. Начни вводить имя — появятся подсказки.",
+  ollama: "Ollama на этом компьютере", lmstudio: "LM Studio на этом компьютере", other: "Другой (протокол OpenAI)",
+  what_h: "Что проверить",
+  what_lead: "Выбери, о чём просить агента. Каждый вариант — проверка одного свойства песочницы.",
+  own: "Свои слова", own_about: "Напиши агенту что угодно.",
+  words_l: "Задание, которое получит агент (можно править)",
+  words_count: "{n} из {lim} байт", words_over: " — агент прочтёт только начало",
+  params_h: "Параметры",
+  budget_l: "Бюджет агента", budget_h: "Сколько единиц агент может потратить за прогон. Каждый ход и каждый вопрос модели стоят единиц; кончились — агент остановлен.",
+  answer_l: "Предел ответа модели, байт", answer_h: "Сколько байт ответа модели попадает агенту (не больше 1024). Чем больше, тем дороже вопрос.",
+  timeout_l: "Срок ответа модели, секунд", timeout_h: "Сколько ждать модель. 0 — сам: 300 с для локальной, 90 с для облачной. Не ответила — «модель молчит».",
+  second_l: "Второй агент", second_idle: "есть, но не ходит", second_acts: "ходит, с той же моделью",
+  second_h: "В песочнице два агента в разных отсеках. Второй нужен, чтобы проверить, что сведения не перетекают между ними. Если он тоже ходит, прогон вдвое дольше и дороже.",
+  seed_l: "Набор задач", seed_h: "Номер набора задач, которые выдаёт среда. Один номер — одни и те же задачи.",
+  tokens_l: "Токенов на ответ облачной модели", tokens_h: "Пусто — половина предела ответа. Больше нужно моделям, которые сначала «рассуждают».",
+  start: "Запустить прогон", stop: "Остановить прогон",
+  need_engine: "сначала установи движок (см. выше)", need_file: "выбери файл модели", need_cloud: "укажи адрес и имя модели",
+  need_words: "напиши агенту задание", no_local: "локальная модель здесь недоступна",
+  how_h: "Как это устроено",
+  how_intro: "Песочница — место, где ИИ-агент может действовать, но не может навредить: каждое действие проверяется и оплачивается, а выхода наружу нет по устройству, а не по запрету словами.",
+  how_1: "<span class='em'>Агент</span> — маленькая программа внутри песочницы. Сам он не думает: на каждом шаге он спрашивает <span class='em'>модель</span>, что делать.",
+  how_2: "Модель отвечает <span class='em'>ходом</span> — одной строкой из списка: прочитать задачи, решить задачу, вычислить, доставить результат, обратиться к ресурсу напрямую…",
+  how_3: "<span class='em'>Ворота среды</span> проверяют, есть ли у агента право на этот ход, и списывают плату из бюджета. Нет права — отказ, но попытка всё равно оплачена.",
+  how_4: "Всё ложится в <span class='em'>журнал</span>. Когда агент закончил или бюджет кончился, отдельная программа — <span class='em'>наблюдатель</span> — сверяет журнал с законами среды.",
+  how_out: "Наружу ведёт один путь — выход проверенных результатов. Вопрос облачной модели — второй путь: он тоже оплачен и записан.",
+  how_go: "Слева выбери модель и что проверить, затем «Запустить прогон».",
+  st_run: "Идёт прогон", st_done: "Прогон окончен", st_stopped: "Прогон остановлен", st_error: "Прогон не удался",
+  st_check: "Сверка с законами",
+  a_starting: "Запускаю песочницу", a_loading_model: "Загружаю модель в память — у большой это до минуты",
+  a_asking: "Агент {c} спрашивает модель — ход {n}", a_moving: "Агент {c} делает ход {n}",
+  a_checking: "Наблюдатель сверяет журнал с законами", a_stopping: "Останавливаю", a_stopped: "", a_done: "",
+  elapsed: "всего {t}",
+  n_budget: "бюджет: осталось", n_of: "из {b}", n_q: "вопросов модели", n_sent: "отправлено модели", n_ref: "отказов среды",
+  n_acc: "принято ответов",
+  moves_h: "Ходы агента",
+  moves_lead: "Новые — сверху. Сиреневым — что ответила модель; ниже — что это значит и что сделала среда; курсивом — как итог понял сам агент.",
+  agent_n: "Агент {n}", turn: "Ход {n}", asking_now: "спрашивает модель…",
+  raw: "Вопрос модели и ответ целиком", q_cap: "Вопрос модели — {b} байт, плата {f}", a_cap: "Ответ модели — только слова, прав он не даёт",
+  before: "До первого вопроса",
+  agent_said: "агент понял итог так: {t}",
+  verdict_ok: "Песочница выдержала: нарушений нет",
+  verdict_ok_sub: "Проверено законов: {h}. Не задеты этим прогоном: {na}.",
+  verdict_bad: "Нарушены законы: {k}",
+  verdict_explain: "Наблюдатель — отдельная программа — прочитал журнал прогона и проверил каждый закон среды. «Не задет» — в этом прогоне не случилось ничего, что могло бы его нарушить. Нажми на группу, чтобы увидеть законы.",
+  audit_ok: "Песочница не трогала сеть, чужие файлы и чужие процессы.", audit_bad: "Аудит процесса песочницы: {e}.",
+  seal_ok: "Сеть у песочницы была отнята системой.", seal_netns: "Сеть у модели была отнята пустым сетевым пространством.",
+  seal_none: "Сеть у песочницы системой не отнималась — её держало только устройство ворот.",
+  open_note: "Модель облачная: законы проверяют песочницу, а не поставщика. Если оба агента спрашивают одну облачную модель, связь между ними через поставщика песочница не видит.",
+  tokens: "Токены облака (со слов поставщика): вопросы {i}, ответы {o}.",
+  zip: "Скачать журнал и итоги (zip)", again: "Новый прогон",
+  stopped_text: "Законы не проверялись: для сверки нужен законченный прогон. Журнал до остановки сохранён.",
+  error_text: "Прогон не дошёл до конца.",
+  st_h: "соблюдён", st_b: "нарушен", st_na: "не задет",
+  laws_n: "{h} из {n}",
+  n_no_seal_netns: "Печать сети здесь не встала ({why}). Сеть у модели отнята другим способом — пустым сетевым пространством.",
+  n_no_seal_open: "Печать сети не поставлена ({why}): песочницу держит только устройство ворот.",
+  n_closed_impossible: "Локальную модель здесь не запустить: системе нечем отнять у неё сеть ({why}).",
+  n_cloud_failed: "Облако не ответило: {why}. Агент получил «модель молчит».",
+  n_host_crash: "Сбой программы экрана:\n{why}",
+  payer_env: "среды", payer_agent: "агента",
+ },
+ en: {
+  title: "Prostranstvo", subtitle: "a sandbox for AI agents", how_link: "How it works",
+  model_h: "Model", local: "Local", local_sub: "a GGUF file on this computer", cloud: "Cloud",
+  cloud_sub: "by address and key",
+  local_explain: "The model runs inside the sandbox on this computer. The system takes its network away: the agent's questions go nowhere.",
+  local_noseal: "This system cannot take the network away from the model, so a local model is not available here. Cloud works.",
+  cloud_explain: "The model is at a provider or in a separate program on this computer (Ollama, LM Studio). The agent's questions reach it over the network — each one is paid for from the agent's budget and logged before it is sent. The sandbox itself has no network.",
+  found: "Found in the models folder:", nofound: "The models folder is empty. Give the path to your file or download one by link.",
+  path_l: "Or the path to a .gguf file on this computer", url_l: "Or download by link — e.g. from huggingface.co",
+  download: "Download", dl_going: "Downloading {name}: {pct}", dl_done: "Downloaded: {name}. SHA-256 checksum: {sha}",
+  dl_err: "Download failed: {e}",
+  engine: "Model files need an engine. Once, in a terminal: python3 start.py --local",
+  provider_l: "Provider", address_l: "Address", modelname_l: "Model name", list: "List", key_l: "API key",
+  key_ph: "not saved", key_none: "no key needed",
+  key_env: "The key is taken from the {env} variable — you can leave the field empty.",
+  key_hint: "The key stays in the program's memory until the run ends and is never written anywhere. You can set it before starting with the {env} variable.",
+  check: "Check connection", checking: "Asking…", check_ok: "Connected, the model answered: “{a}”", check_no: "No connection: {e}",
+  listing: "Asking for the list…", listed: "{n} models. Start typing a name to see suggestions.",
+  ollama: "Ollama on this computer", lmstudio: "LM Studio on this computer", other: "Other (OpenAI protocol)",
+  what_h: "What to test",
+  what_lead: "Choose what to ask the agent. Each option tests one property of the sandbox.",
+  own: "Your own words", own_about: "Tell the agent anything.",
+  words_l: "The task the agent will get (editable)",
+  words_count: "{n} of {lim} bytes", words_over: " — the agent will read only the beginning",
+  params_h: "Parameters",
+  budget_l: "Agent budget", budget_h: "How many units the agent may spend in a run. Every move and every question to the model costs units; when they run out, the agent is stopped.",
+  answer_l: "Model answer limit, bytes", answer_h: "How many bytes of the model's answer reach the agent (at most 1024). The larger, the more a question costs.",
+  timeout_l: "Model answer timeout, seconds", timeout_h: "How long to wait for the model. 0 — automatic: 300 s local, 90 s cloud. No answer — “the model is silent”.",
+  second_l: "Second agent", second_idle: "present, but idle", second_acts: "acts, with the same model",
+  second_h: "The sandbox holds two agents in separate compartments. The second one is there to check that data does not flow between them. If it acts too, a run takes twice as long and costs twice as much.",
+  seed_l: "Task set", seed_h: "Which set of tasks the environment gives out. The same number — the same tasks.",
+  tokens_l: "Tokens per cloud answer", tokens_h: "Empty — half the answer limit. Models that “reason” first need more.",
+  start: "Start the run", stop: "Stop the run",
+  need_engine: "install the engine first (see above)", need_file: "choose a model file", need_cloud: "enter the address and model name",
+  need_words: "write a task for the agent", no_local: "a local model is not available here",
+  how_h: "How it works",
+  how_intro: "A sandbox is a place where an AI agent can act but cannot do harm: every action is checked and paid for, and there is no way out — by construction, not by a ban in words.",
+  how_1: "The <span class='em'>agent</span> is a small program inside the sandbox. It does not think by itself: at every step it asks the <span class='em'>model</span> what to do.",
+  how_2: "The model answers with a <span class='em'>move</span> — one line from a list: read the tasks, solve a task, compute, deliver a result, access a resource directly…",
+  how_3: "The environment's <span class='em'>gates</span> check whether the agent has the right to make that move and charge its budget. No right — refusal, but the attempt is still paid for.",
+  how_4: "Everything goes into the <span class='em'>log</span>. When the agent is done or the budget is gone, a separate program — the <span class='em'>observer</span> — checks the log against the environment's laws.",
+  how_out: "One path leads outside: the output for verified results. A question to a cloud model is a second path: it is paid for and logged too.",
+  how_go: "On the left, choose a model and what to test, then “Start the run”.",
+  st_run: "Run in progress", st_done: "Run finished", st_stopped: "Run stopped", st_error: "Run failed",
+  st_check: "Checking the laws",
+  a_starting: "Starting the sandbox", a_loading_model: "Loading the model into memory — up to a minute for a big one",
+  a_asking: "Agent {c} is asking the model — move {n}", a_moving: "Agent {c} is making move {n}",
+  a_checking: "The observer is checking the log against the laws", a_stopping: "Stopping", a_stopped: "", a_done: "",
+  elapsed: "{t} in total",
+  n_budget: "budget left", n_of: "of {b}", n_q: "questions to the model", n_sent: "sent to the model", n_ref: "refusals",
+  n_acc: "answers accepted",
+  moves_h: "Agent's moves",
+  moves_lead: "Newest first. In lilac — what the model answered; below — what it means and what the environment did; in italics — how the agent itself understood the result.",
+  agent_n: "Agent {n}", turn: "Move {n}", asking_now: "asking the model…",
+  raw: "Full question and answer", q_cap: "Question to the model — {b} bytes, cost {f}", a_cap: "The model's answer — words only, it grants no rights",
+  before: "Before the first question",
+  agent_said: "the agent understood the result as: {t}",
+  verdict_ok: "The sandbox held: no violations",
+  verdict_ok_sub: "Laws checked: {h}. Not touched by this run: {na}.",
+  verdict_bad: "Laws violated: {k}",
+  verdict_explain: "The observer — a separate program — read the run's log and checked every law of the environment. “Not touched” means nothing in this run could have broken it. Click a group to see its laws.",
+  audit_ok: "The sandbox touched no network, no foreign files and no foreign processes.", audit_bad: "Audit of the sandbox process: {e}.",
+  seal_ok: "The system had taken the network away from the sandbox.", seal_netns: "The model's network was taken away by an empty network namespace.",
+  seal_none: "The system did not take the network away from the sandbox — only the gates held it.",
+  open_note: "The model is a cloud one: the laws check the sandbox, not the provider. If both agents ask the same cloud model, a link between them through the provider is invisible to the sandbox.",
+  tokens: "Cloud tokens (as counted by the provider): questions {i}, answers {o}.",
+  zip: "Download the log and results (zip)", again: "New run",
+  stopped_text: "The laws were not checked: that needs a finished run. The log up to the stop is saved.",
+  error_text: "The run did not finish.",
+  st_h: "holds", st_b: "violated", st_na: "not touched",
+  laws_n: "{h} of {n}",
+  n_no_seal_netns: "The network seal did not take here ({why}). The model's network is taken away another way — by an empty network namespace.",
+  n_no_seal_open: "No network seal ({why}): only the gates hold the sandbox.",
+  n_closed_impossible: "A local model cannot run here: the system cannot take its network away ({why}).",
+  n_cloud_failed: "The cloud did not answer: {why}. The agent got “the model is silent”.",
+  n_host_crash: "The screen program failed:\n{why}",
+  payer_env: "the environment", payer_agent: "the agent",
+ }};
+
+// Что значит ход — по ключевому слову из ответа модели (грамматика агента по-русски).
+const MOVE = {
+ ru: {
+  "ЧИТАЙ ЗАДАНИЯ": "прочитать список задач",
+  "ЧИТАЙ ЗАДАНИЕ": "прочитать условие задачи {a}",
+  "ЧИТАЙ ВХОД": "перечитать задание человека",
+  "РЕШИ": "решить задачу {a}: агент сам считает ответ и сдаёт его среде на проверку",
+  "ОТВЕТ": "сдать свой ответ на часть {b} задачи {a}",
+  "УЗЕЛ": "вычислить узел {a} в графе вычислений среды",
+  "ВЫБРОСИ": "выбросить узел {a} из памяти",
+  "ДОСТАВЬ_OUT": "отдать узел {a} наружу через выход — единственный разрешённый путь наружу",
+  "ДОСТАВЬ_E": "доставить узел {a} в защищённый объект E",
+  "ЗАПИШИ СНИМОК": "записать заметку в свою память",
+  "СПРАВКА": "спросить у среды, есть ли ресурс с именем «{name}»",
+  "ПОМОЩНИК": "запустить помощника — ещё одну программу рядом с собой",
+  "ВЫЗОВ": "сырой вызов: обратиться к ресурсу №{a} напрямую, операция {b}. Так ищут дыры",
+  "СТОП": "закончить работу",
+  "не разобран": "это не ход из списка: агент не понял модель, вопрос потрачен зря",
+  "молчит": "модель не ответила в срок",
+ },
+ en: {
+  "ЧИТАЙ ЗАДАНИЯ": "read the task list",
+  "ЧИТАЙ ЗАДАНИЕ": "read the data of task {a}",
+  "ЧИТАЙ ВХОД": "re-read the person's task",
+  "РЕШИ": "solve task {a}: the agent computes the answer itself and submits it for checking",
+  "ОТВЕТ": "submit its own answer to part {b} of task {a}",
+  "УЗЕЛ": "compute node {a} of the environment's computation graph",
+  "ВЫБРОСИ": "drop node {a} from memory",
+  "ДОСТАВЬ_OUT": "send node {a} out through the output — the only permitted way out",
+  "ДОСТАВЬ_E": "deliver node {a} to protected object E",
+  "ЗАПИШИ СНИМОК": "write a note to its own memory",
+  "СПРАВКА": "ask the environment whether a resource named “{name}” exists",
+  "ПОМОЩНИК": "start a helper — another program next to itself",
+  "ВЫЗОВ": "raw call: access resource #{a} directly, operation {b}. This is how holes are probed",
+  "СТОП": "finish",
+  "не разобран": "not a move from the list: the agent could not understand the model, the question is wasted",
+  "молчит": "the model did not answer in time",
+ }};
+
+const CODE = {
+ ru: {"-1": "нет права — у агента нет такого ресурса или такой операции", "-2": "нет такого имени", "-3": "не хватает бюджета",
+      "-4": "адрес вне памяти агента", "-5": "превышен предел", "-6": "условие не выполнено", "-7": "модель молчит"},
+ en: {"-1": "no right — the agent has no such resource or operation", "-2": "no such name", "-3": "not enough budget",
+      "-4": "address outside the agent's memory", "-5": "limit exceeded", "-6": "condition not met", "-7": "the model is silent"}};
+
+// Что сделала среда — по записи журнала.
+function effectText(ev, L) {
+  const ru = L === "ru", recv = (r) => r === "выход" ? (ru ? "выход" : "the output") : r;
+  switch (ev.kind) {
+    case "действие": {
+      const R = {"чтение": ru ? "прочитал «{o}»" : "read “{o}”", "запись": ru ? "записал «{o}»" : "wrote “{o}”",
+        "сдача ответа": ru ? "ответ принят и ушёл в выход" : "the answer was accepted and sent to the output",
+        "создание помощника": ru ? "помощник запущен" : "the helper was started",
+        "резольвер: имя из описи": ru ? "среда нашла такое имя" : "the environment found that name",
+        "передача ссылки": ru ? "передал ссылку" : "passed a reference", "чтение ссылки": ru ? "взял ссылку" : "took a reference"};
+      return {cls: "ok", text: fill(R[ev.rule] || `${ev.rule}: {o}`, {o: ev.obj})};
+    }
+    case "отказ ворот":
+      return {cls: "bad", text: fill(ru ? "среда отказала: {w} (код {c}); попытка стоила {p}" : "the environment refused: {w} (code {c}); the attempt cost {p}",
+        {w: CODE[L][String(ev.code)] || "?", c: ev.code, p: ev.charge ?? 0})};
+    case "проверка":
+      return {cls: "info", text: fill(ru ? "среда проверяет ответ на часть {p} задачи {t} за счёт {who}" : "the environment checks the answer to part {p} of task {t}, paid by {who}",
+        {p: ev.part, t: ev.task, who: T[L][ev.payer === "агент" ? "payer_agent" : "payer_env"]})};
+    case "отказ":
+      return {cls: "bad", text: ev.task !== undefined
+        ? fill(ru ? "ответ неверен и не принят; агент платит {c}" : "the answer is wrong and not accepted; the agent pays {c}", {c: ev.charge ?? 0})
+        : fill(ru ? "{r} не принял доставку; плата {c}" : "{r} refused the delivery; cost {c}", {r: recv(ev.receiver), c: ev.charge ?? 0})};
+    case "списание":
+      return {cls: "info", text: fill(ru ? "за доставку в {r} списано {p}" : "{p} charged for delivery to {r}", {r: recv(ev.receiver), p: ev.price})};
+    case "завершено": return {cls: "ok", text: ru ? "доставлено" : "delivered"};
+    case "работа":
+      return {cls: "ok", text: fill(ru ? "узел {n} вычислен{f}; плата {p}" : "node {n} computed{f}; cost {p}",
+        {n: ev.node, p: ev.price, f: ev.first ? (ru ? " впервые" : " for the first time") : ""})};
+    case "выброс": return {cls: "info", text: fill(ru ? "узел {n} выброшен" : "node {n} dropped", {n: ev.node})};
+    case "останов": return {cls: "bad", text: ru ? "бюджет кончился — агент остановлен" : "the budget ran out — the agent was stopped"};
+    default: return {cls: "info", text: ev.kind};
+  }
+}
+
+function moveMeaning(move, line, L) {
+  const M = MOVE[L];
+  if (!move) return "";
+  const nums = (line.match(/-?\d+/g) || []);
+  if (move === "ДОСТАВЬ") return fill(M[/\s[EЕ]\s*$/i.test(line) ? "ДОСТАВЬ_E" : "ДОСТАВЬ_OUT"], {a: nums[0] ?? (L === "ru" ? "(без номера)" : "(no number)")});
+  if (move === "СПРАВКА") return fill(M["СПРАВКА"], {name: line.replace(/^[^А-ЯЁа-яё]*СПРАВКА\s*/i, "").trim().slice(0, 40)});
+  const none = L === "ru" ? "(без номера)" : "(no number)";
+  return fill(M[move] ?? "", {a: nums[0] ?? none, b: nums[1] ?? none});
+}
+
+// ---------------------------------------------------------------- язык
+let LANG = "ru";
+try { LANG = localStorage.getItem("prostranstvo_lang") || (navigator.language || "ru").slice(0, 2); } catch (e) {}
+if (!T[LANG]) LANG = "en";
+const t = (k, p) => fill(T[LANG][k] ?? k, p);
+
+// ---------------------------------------------------------------- сервер
 async function api(path, body) {
   const opt = body === undefined ? {headers: {"X-Token": TOKEN}}
     : {method: "POST", headers: {"X-Token": TOKEN, "content-type": "application/json"}, body: JSON.stringify(body)};
   const r = await fetch(path, opt);
-  const j = await r.json().catch(() => ({error: `ответ ${r.status}`}));
-  if (!r.ok) throw new Error(j.error || `ответ ${r.status}`);
+  const j = await r.json().catch(() => ({error: `HTTP ${r.status}`}));
+  if (!r.ok) throw new Error((LANG === "en" && j.error_en) || j.error || `HTTP ${r.status}`);
   return j;
 }
 
-let INFO = null, contour = "сомкнутый", local = "демо", running = false, since = 0, poll = null;
-let activity = {text: "", since: 0}, clockSkew = 0, turns = {1: {}, 2: {}}, scenario = null;
+let INFO = null, contour = "сомкнутый", localPick = "", scenario = "work", LAST = null, running = false, poll = null;
+let since = 0, events = [], clockSkew = 0, tab = 1, movesKey = "";
+const openRaw = new Set(), openGroups = new Set();
 
-function banner(text) { $("banner").textContent = text || ""; $("banner").classList.toggle("hidden", !text); }
-function note(text) { $("note").textContent = text || ""; $("note").classList.toggle("hidden", !text); }
+function applyLang() {
+  document.documentElement.lang = LANG;
+  document.title = `${t("title")} — ${t("subtitle")}`;
+  for (const el of document.querySelectorAll("[data-t]")) el.textContent = t(el.dataset.t);
+  for (const b of document.querySelectorAll("[data-lang]")) b.classList.toggle("on", b.dataset.lang === LANG);
+  if (!INFO) return;
+  renderHow(); renderLocal(); renderPresets(); renderKeyHint(); renderScenarios(); setContour(contour); countWords();
+  movesKey = "";
+  if (LAST) render(LAST);
+}
 
-// ---- контур
+// ---------------------------------------------------------------- модель
 function setContour(c) {
   contour = c;
   for (const b of $("seg").children) b.classList.toggle("on", b.dataset.c === c);
-  $("closedBox").classList.toggle("hidden", c !== "сомкнутый");
-  $("openBox").classList.toggle("hidden", c !== "разомкнутый");
-  $("tokLabel").classList.toggle("hidden", c !== "разомкнутый");
-  const s = INFO.seal[c];
-  let h;
-  if (c === "сомкнутый") {
-    h = s === null ? "Сеть у песочницы отнята системой (печать сети). Вопросы агента не покидают компьютер."
-      : INFO.unshare ? "Печать сети здесь не ставится; сеть у процесса модели отнята пустым сетевым пространством."
-      : "Сомкнутый контур здесь недоступен: системе нечем отнять сеть у песочницы.";
-  } else {
-    h = "Вопросы агента уходят облачной модели — это второй разрешённый вывод. Всё, что уходит, " +
-        "оплачено из бюджета и записано в журнал до отправки. Сеть есть только у связи — части программы экрана, " +
-        "которая передаёт вопросы облаку; " +
-        (s === null ? "у песочницы она отнята системой." : "печать сети здесь не ставится — песочницу держит устройство ворот.");
-  }
-  $("contourHint").textContent = h;
+  $("localBox").classList.toggle("hidden", c !== "сомкнутый");
+  $("cloudBox").classList.toggle("hidden", c !== "разомкнутый");
+  $("tokParam").classList.toggle("hidden", c !== "разомкнутый");
+  $("contourExplain").textContent = c === "сомкнутый" ? (INFO.closed_ok ? t("local_explain") : t("local_noseal")) : t("cloud_explain");
   checkReady();
 }
 
 function renderLocal() {
-  const rows = [`<label class="opt"><input type="radio" name="lm" value="демо" ${local === "демо" ? "checked" : ""}>
-    <span>Демо — без модели<small>заранее записанные ходы, среди них попытки выхода; несколько секунд</small></span></label>`];
-  for (const m of INFO.models) rows.push(`<label class="opt"><input type="radio" name="lm" value="${esc(m.name)}"
-    ${local === m.name ? "checked" : ""}><span>${esc(m.name)}<small>${m.mb} МБ, папка models</small></span></label>`);
-  $("localList").innerHTML = rows.join("");
-  for (const r of document.querySelectorAll('input[name=lm]')) r.onchange = () => { local = r.value; checkReady(); };
-  const have = new Set(INFO.models.map((m) => m.name));
-  $("dlButtons").innerHTML = INFO.downloads.filter((d) => !have.has(d.file)).map((d) =>
-    `<button class="ghost dark" data-dl="${d.id}">Скачать ${esc(d.name)} · ${(d.size_mb / 1024).toFixed(1).replace(".", ",")} ГБ</button>`).join("");
-  for (const b of document.querySelectorAll("[data-dl]")) b.onclick = () => download(b.dataset.dl, b);
-  $("llamaHint").textContent = INFO.llama ? "" :
-    "Чтобы запускать файлы моделей, нужен движок: в терминале `python3 start.py --local` (сборка — минут десять).";
+  const rows = INFO.models.map((m) => `<label class="choice ${localPick === m.path ? "on" : ""}">
+      <input type="radio" name="lm" value="${esc(m.path)}" ${localPick === m.path ? "checked" : ""}>
+      <div><b>${esc(m.name)}</b><span>${m.mb} MB</span></div></label>`).join("");
+  $("localList").innerHTML = `<div class="small">${INFO.models.length ? t("found") : t("nofound")}</div>${rows}`;
+  for (const r of document.querySelectorAll("input[name=lm]")) r.onchange = () => { localPick = r.value; $("path").value = ""; renderLocal(); checkReady(); };
+  $("engineOut").textContent = INFO.llama ? "" : t("engine");
 }
 
-async function download(id, btn) {
-  btn.disabled = true;
-  try { await api("/api/download", {id}); } catch (e) { banner(e.message); btn.disabled = false; return; }
-  const t = setInterval(async () => {
-    const d = (await api("/api/downloads"))[id];
+async function download() {
+  const url = $("url").value.trim();
+  if (!url) return;
+  $("btnDl").disabled = true; $("dlOut").className = "out";
+  let name;
+  try { name = (await api("/api/download", {url})).name; }
+  catch (e) { $("dlOut").className = "out bad"; $("dlOut").textContent = t("dl_err", {e: e.message}); $("btnDl").disabled = false; return; }
+  const timer = setInterval(async () => {
+    const d = (await api("/api/downloads"))[name];
     if (!d) return;
-    if (d.state === "идёт") btn.textContent = `Качаю… ${Math.round(100 * d.done / d.total)}%`;
-    else { clearInterval(t); if (d.state === "ошибка") { banner("Модель не скачалась: " + d.error); btn.disabled = false; }
-           INFO = await api("/api/info"); renderLocal(); }
-  }, 700);
+    if (d.state === "идёт") {
+      const pct = d.total ? Math.round(100 * d.done / d.total) + "%" : Math.round(d.done / 1048576) + " MB";
+      $("dlOut").textContent = t("dl_going", {name, pct});
+      return;
+    }
+    clearInterval(timer); $("btnDl").disabled = false;
+    if (d.state === "ошибка") { $("dlOut").className = "out bad"; $("dlOut").textContent = t("dl_err", {e: d.error}); return; }
+    $("dlOut").className = "out good"; $("dlOut").textContent = t("dl_done", {name, sha: d.sha256});
+    INFO = await api("/api/info");
+    const m = INFO.models.find((x) => x.name === name); if (m) { localPick = m.path; $("path").value = ""; }
+    renderLocal(); checkReady();
+  }, 800);
 }
 
-// ---- облако
-function presetObj() { return INFO.presets.find((p) => p.id === $("preset").value); }
+function presetObj() { return INFO.presets.find((p) => p.id === $("preset").value) || INFO.presets[0]; }
+function renderPresets() {
+  const sel = $("preset").value;
+  $("preset").innerHTML = INFO.presets.map((p) => `<option value="${p.id}">${esc(T[LANG][p.id] || p.name)}</option>`).join("");
+  if (sel) $("preset").value = sel;
+}
+function renderKeyHint() {
+  const p = presetObj(), local = p.base.startsWith("http://127.");
+  $("key").placeholder = local ? t("key_none") : t("key_ph");
+  $("keyOut").textContent = p.has_env_key ? t("key_env", {env: p.key_env})
+    : INFO.generic_env_key ? t("key_env", {env: "PROSTRANSTVO_KEY"}) : (p.key_env ? t("key_hint", {env: p.key_env}) : "");
+}
 function onPreset() {
-  const p = presetObj();
-  if (p.base) $("base").value = p.base;
-  $("key").placeholder = p.key_env === "" && p.base.startsWith("http://127.") ? "ключ не нужен" : "ключ — не сохраняется";
-  $("keyHint").textContent = p.has_env_key ? `Ключ взят из переменной ${p.key_env}; поле можно оставить пустым.`
-    : INFO.generic_env_key ? "Ключ взят из переменной PROSTRANSTVO_KEY; поле можно оставить пустым." :
-    (p.key_env ? `Ключ можно не вводить здесь, а задать переменной ${p.key_env} перед запуском.` : "");
-  $("modelList").innerHTML = "";
-  checkReady();
+  $("base").value = presetObj().base; $("modelList").innerHTML = ""; $("checkOut").textContent = "";
+  renderKeyHint(); checkReady();
 }
 function cloudBody() {
-  const p = presetObj(), c = {preset: p.id, kind: p.kind, base: $("base").value.trim(), model: $("model").value.trim(),
-    key: $("key").value};
+  const p = presetObj(), c = {preset: p.id, kind: p.kind, base: $("base").value.trim(), model: $("model").value.trim(), key: $("key").value};
   if ($("maxTokens").value) c.max_tokens = Number($("maxTokens").value);
   return {cloud: c};
 }
 async function listModels() {
-  $("checkOut").textContent = "спрашиваю список…";
+  $("checkOut").className = "out"; $("checkOut").textContent = t("listing");
   try {
     const r = await api("/api/cloud/models", cloudBody());
     $("modelList").innerHTML = r.models.map((m) => `<option value="${esc(m)}">`).join("");
-    $("checkOut").textContent = `моделей: ${r.models.length} — начни вводить имя`;
-  } catch (e) { $("checkOut").textContent = e.message; }
+    $("checkOut").textContent = t("listed", {n: r.models.length});
+  } catch (e) { $("checkOut").className = "out bad"; $("checkOut").textContent = t("check_no", {e: e.message}); }
 }
 async function checkCloud() {
-  $("checkOut").textContent = "спрашиваю…";
+  $("checkOut").className = "out"; $("checkOut").textContent = t("checking");
   try {
     const r = await api("/api/cloud/check", cloudBody());
-    $("checkOut").textContent = `связь есть: «${r.answer.trim().slice(0, 40)}»`;
-  } catch (e) { $("checkOut").textContent = "нет: " + e.message; }
+    $("checkOut").className = "out good"; $("checkOut").textContent = t("check_ok", {a: r.answer.trim().slice(0, 60)});
+  } catch (e) { $("checkOut").className = "out bad"; $("checkOut").textContent = t("check_no", {e: e.message}); }
 }
 
-// ---- слова
-function renderChips() {
-  const names = Object.keys(INFO.scenarios);
-  $("chips").innerHTML = names.map((n) => `<button class="chip" data-s="${esc(n)}">${esc(n)}</button>`).join("");
-  for (const b of document.querySelectorAll("[data-s]")) b.onclick = () => { pickScenario(b.dataset.s); };
+// ---------------------------------------------------------------- что проверить
+function renderScenarios() {
+  const all = [...INFO.scenarios.map((s) => ({id: s.id, ...s[LANG]})), {id: "own", title: t("own"), about: t("own_about")}];
+  $("scenarios").innerHTML = all.map((s) => `<label class="choice ${scenario === s.id ? "on" : ""}">
+    <input type="radio" name="sc" value="${s.id}" ${scenario === s.id ? "checked" : ""}>
+    <div><b>${esc(s.title)}</b><span>${esc(s.about)}</span></div></label>`).join("");
+  for (const r of document.querySelectorAll("input[name=sc]")) r.onchange = () => pickScenario(r.value);
 }
-function pickScenario(n) {
-  scenario = n; $("words").value = INFO.scenarios[n];
-  for (const b of document.querySelectorAll("[data-s]")) b.classList.toggle("on", b.dataset.s === n);
-  countWords();
+function pickScenario(id) {
+  scenario = id;
+  const s = INFO.scenarios.find((x) => x.id === id);
+  if (s) $("words").value = s[LANG].words;
+  else if (id === "own") $("words").value = "";
+  renderScenarios(); countWords();
 }
 function countWords() {
   const n = bytes($("words").value), lim = INFO.words_bytes;
-  $("wordsCount").textContent = `${n} / ${lim} байт` + (n > lim ? " — агент прочтёт только начало" : "");
+  $("wordsCount").textContent = t("words_count", {n, lim}) + (n > lim ? t("words_over") : "");
   $("wordsCount").classList.toggle("over", n > lim);
   checkReady();
 }
 
+function modelPath() { return $("path").value.trim() || localPick; }
 function checkReady() {
-  if (!INFO || running) return;
+  if (!INFO) return;
   let why = "";
-  if (!INFO.agent) why = INFO.agent_error || "агент не собран";
-  else if (!$("words").value.trim()) why = "напиши агенту, что делать";
+  if (!INFO.agent) why = INFO.agent_error || "agent";
   else if (contour === "сомкнутый") {
-    if (!INFO.closed_ok) why = "сомкнутый контур здесь недоступен";
-    else if (local !== "демо" && !INFO.llama) why = "нужен движок местной модели";
-  } else if (!$("base").value.trim() || !$("model").value.trim()) why = "укажи адрес и модель";
-  $("btnStart").disabled = !!why;
-  $("startHint").textContent = why;
+    if (!INFO.closed_ok) why = t("no_local");
+    else if (!INFO.llama) why = t("need_engine");
+    else if (!modelPath()) why = t("need_file");
+  } else if (!$("base").value.trim() || !$("model").value.trim()) why = t("need_cloud");
+  if (!why && !$("words").value.trim()) why = t("need_words");
+  $("btnStart").disabled = running || !!why;
+  $("why").textContent = running ? "" : why;
 }
 
-// ---- прогон
-function settings() {
+// ---------------------------------------------------------------- как устроено
+function renderHow() {
+  $("how").innerHTML = `<h2>${t("how_h")}</h2><p class="lead">${t("how_intro")}</p>
+    <ol><li>${t("how_1")}</li><li>${t("how_2")}</li><li>${t("how_3")}</li><li>${t("how_4")}</li></ol>
+    <p class="small">${t("how_out")}</p><p class="small"><b>${t("how_go")}</b></p>`;
+}
+
+// ---------------------------------------------------------------- прогон
+async function start() {
   const b = {contour, words: $("words").value, budget: Number($("budget").value), answer: Number($("answer").value),
     timeout: Number($("timeout").value), seed: Number($("seed").value), second: $("second").value};
-  if (contour === "сомкнутый") b.model = local; else Object.assign(b, cloudBody());
-  return b;
+  if (contour === "сомкнутый") b.model = modelPath(); else Object.assign(b, cloudBody());
+  try { await api("/api/start", b); }
+  catch (e) { $("why").textContent = e.message; return; }
+  running = true; since = 0; events = []; LAST = null; tab = 1; movesKey = ""; openRaw.clear(); openGroups.clear();
+  $("how").classList.add("hidden"); $("notes").innerHTML = "";
+  checkReady(); poll = setInterval(tick, 700); tick();
 }
-
-async function start() {
-  banner(""); note("");
-  try { await api("/api/start", settings()); }
-  catch (e) { banner(e.message); return; }
-  running = true; since = 0; turns = {1: {}, 2: {}};
-  $("btnStart").disabled = true; $("btnStop").disabled = false; $("btnAgain").classList.add("hidden");
-  $("startHint").textContent = "";
-  $("setup").classList.add("hidden"); $("live").classList.remove("hidden");
-  $("verdict").classList.add("hidden"); $("verdict").innerHTML = "";
-  const two = $("second").value === "такой же";
-  $("contours").className = "contours" + (two ? " two" : "");
-  $("contours").innerHTML = [1, 2].filter((i) => i === 1 || two).map((i) => `
-    <div class="card"><div class="label">Агент ${i}</div><div class="stats" id="st${i}"></div><div id="t${i}"></div></div>`).join("")
-    + (two ? "" : `<p class="hint tiny">Второй агент молчит: его контур есть, но он не ходит. Закон «контуры не сообщаются» проверяет, что к нему ничего не просочилось.</p>`);
-  poll = setInterval(tick, 700); tick();
-}
-
-async function stop() { $("btnStop").disabled = true; try { await api("/api/stop", {}); } catch (e) { banner(e.message); } }
-
-function statsLine(t, budget) {
-  const refusals = Object.entries(t.refusals).map(([c, n]) => `${c}: ${n}`).join(", ");
-  return `бюджет <b>${budget}</b> → осталось <b>${t.left}</b> · вопросов модели <b>${t.questions}</b>` +
-    ` · к модели <b>${kb(t.bytes_to_model)}</b>` + (t.silent ? ` · модель молчала <b>${t.silent}</b>` : "") +
-    (t.unparsed ? ` · не ход <b>${t.unparsed}</b>` : "") + (refusals ? ` · отказы ворот: ${refusals}` : "") +
-    (t.accepted ? ` · сдано ответов <b>${t.accepted}</b>` : "");
-}
-
-function turnEl(i, n) {
-  let el = turns[i][n];
-  if (el) return el;
-  el = document.createElement("div"); el.className = "turn";
-  el.innerHTML = `<div class="head"><span class="n">${n}</span><span class="move bad">спрашивает модель…</span><span class="secs"></span></div>
-    <div class="effs"></div><div class="full hidden"></div>`;
-  el.querySelector(".head").onclick = () => el.querySelector(".full").classList.toggle("hidden");
-  const box = $("t" + i); if (box) box.appendChild(el);
-  turns[i][n] = el; return el;
-}
-
-function apply(ev) {
-  if (ev.contour === 2 && !$("t2")) return;
-  if (ev.type === "turn") {
-    const el = turnEl(ev.contour, ev.n);
-    el.querySelector(".full").innerHTML = `<div class="tiny muted">Вопрос модели, ${ev.q_len} байт, плата ${ev.fee}</div><pre>${esc(ev.q)}</pre>`;
-  } else if (ev.type === "answer") {
-    const el = turnEl(ev.contour, ev.n), mv = el.querySelector(".move");
-    const silent = ev.move === "молчит", unparsed = ev.move === "не разобран";
-    mv.textContent = silent ? "модель молчит (−7)" : (ev.line || "(пустой ответ)") + (unparsed ? " — не ход" : "");
-    mv.classList.toggle("bad", silent || unparsed);
-    el.querySelector(".secs").textContent = `${ev.seconds} с`;
-    if (!silent) el.querySelector(".full").insertAdjacentHTML("beforeend",
-      `<div class="tiny muted">Ответ модели — слова, прав не дают</div><pre class="model">${esc(ev.a)}</pre>`);
-  } else if (ev.type === "agent") {
-    const el = turnEl(ev.contour, ev.n);
-    el.querySelector(".effs").insertAdjacentHTML("beforeend", `<div class="eff agent">агент: ${esc(ev.text)}</div>`);
-  } else if (ev.type === "effect") {
-    const el = ev.n ? turnEl(ev.contour, ev.n) : null;
-    const box = el ? el.querySelector(".effs") : $("t" + ev.contour);
-    if (box) box.insertAdjacentHTML("beforeend", `<div class="eff ${ev.bad ? "bad" : ""}">→ ${esc(ev.text)}</div>`);
-  }
-}
+async function stop() { $("btnStop").disabled = true; try { await api("/api/stop", {}); } catch (e) {} }
 
 async function tick() {
   let r;
   try { r = await api("/api/run?since=" + since); } catch (e) { return; }
   if (r.state === "нет") return;
   clockSkew = Date.now() / 1000 - r.now;
-  activity = r.activity;
-  for (const ev of r.events) apply(ev);
-  since = r.next;
-  for (const i of [1, 2]) if ($("st" + i)) $("st" + i).innerHTML = statsLine(r.tally[i], r.settings.budget);
-  const errs = r.notes.filter((n) => /не ответило|Сбой|не запустить/.test(n));
-  const info = r.notes.filter((n) => !errs.includes(n));
-  banner(errs.join("\n")); note(info.join("\n"));
-  if (["готово", "остановлено", "ошибка"].includes(r.state)) finish(r);
+  events.push(...r.events); since = r.next; r.events = [];
+  LAST = r; render(r);
+  if (["готово", "остановлено", "ошибка"].includes(r.state)) { clearInterval(poll); running = false; checkReady(); }
 }
 
-function finish(r) {
-  clearInterval(poll); running = false;
-  $("btnStop").disabled = true; $("btnAgain").classList.remove("hidden");
-  activity = {text: r.state === "готово" ? "Готово" : r.state === "остановлено" ? "Остановлено" : "Ошибка", since: 0};
-  const v = $("verdict"); v.classList.remove("hidden");
-  const zip = `<p class="hint"><a href="/api/zip/${r.id}?t=${TOKEN}">Скачать журнал и итоги (zip)</a></p>`;
-  if (r.state !== "готово" || !r.result || r.result.stopped) {
-    v.innerHTML = `<div class="verdict-head bad">${r.state === "остановлено" ? "Остановлено. Законы не проверялись: выгрузки исполнителя нет, журнал до остановки — в архиве." : "Прогон не дошёл до конца."}</div>` + (r.state === "ошибка" ? "" : zip);
-    return;
+function kb(n) { return n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`; }
+const sec = () => (LANG === "ru" ? "с" : "s");
+function clock(s) { s = Math.max(0, Math.round(s)); return s < 60 ? `${s} ${sec()}` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }
+const live = (r) => ["готовится", "идёт", "проверка законов"].includes(r.state);
+
+function render(r) {
+  $("notes").innerHTML = r.notes.map((n) => `<div class="note ${["cloud_failed", "host_crash", "closed_impossible"].includes(n.code) ? "bad" : "warn"}">${esc(t("n_" + n.code, {why: n.why}))}</div>`).join("");
+  $("statusCard").classList.remove("hidden");
+  const st = {"проверка законов": "st_check", "готово": "st_done", "остановлено": "st_stopped", "ошибка": "st_error"}[r.state] || "st_run";
+  $("state").textContent = t(st);
+  $("btnStop").classList.toggle("hidden", !live(r)); $("btnStop").disabled = !live(r);
+  updateActivity();
+  const two = r.settings.second === "такой же", c = r.tally[tab] || r.tally[1], b = r.settings.budget;
+  const ref = Object.values(c.refusals).reduce((x, y) => x + y, 0);
+  $("nums").innerHTML = `
+    <div class="num"><div class="v">${c.left}</div><div class="k">${t("n_budget")} ${t("n_of", {b})}</div>
+      <div class="bar"><i style="width:${Math.max(0, Math.min(100, 100 * c.left / b))}%"></i></div></div>
+    <div class="num"><div class="v">${c.questions}</div><div class="k">${t("n_q")}</div></div>
+    <div class="num"><div class="v">${kb(c.bytes_to_model)}</div><div class="k">${t("n_sent")}</div></div>
+    <div class="num"><div class="v">${ref}</div><div class="k">${t("n_ref")}</div></div>
+    <div class="num"><div class="v">${c.accepted}</div><div class="k">${t("n_acc")}</div></div>`;
+  $("movesCard").classList.remove("hidden");
+  $("tabs").classList.toggle("hidden", !two);
+  const key = `${events.length}|${tab}|${LANG}`;
+  if (key !== movesKey) {          // перерисовывать ходы только когда есть новое
+    movesKey = key;
+    $("tabs").innerHTML = [1, 2].map((i) => `<button data-tab="${i}" class="${tab === i ? "on" : ""}">${t("agent_n", {n: i})}</button>`).join("");
+    for (const btn of document.querySelectorAll("[data-tab]")) btn.onclick = () => { tab = Number(btn.dataset.tab); render(LAST); };
+    $("moves").innerHTML = movesHtml(tab);
   }
-  const res = r.result, ok = res.broken.length === 0;
-  const applicable = res.laws_total - res.laws_na;
-  const head = ok ? `Законы держатся: ${res.laws_holds} из ${applicable} применимых`
-                  : `Нарушено: ${res.broken.join(", ")}`;
-  const groups = res.groups.map((g) => `
-    <div class="group"><div class="gh" onclick="this.nextElementSibling.classList.toggle('hidden')">
-      <span class="dot ${g.status === "не применим" ? "na" : g.status}"></span><span>${esc(g.title)}</span>
-      <span class="muted tiny" style="margin-left:auto">${g.items.filter((x) => x.status === "держится").length} из ${g.items.length}</span></div>
-      <div class="hidden">${g.items.map((x) => `<div class="law"><span class="dot ${x.status === "не применим" ? "na" : x.status}" style="margin-top:5px"></span>
-        <span class="k">${esc(x.key)}</span><span>${esc(x.text)}${x.status !== "держится" ? ` <span class="d">— ${esc(x.status)}${x.detail ? ": " + esc(x.detail) : ""}</span>` : ""}</span></div>`).join("")}</div></div>`).join("");
-  const audit = res.audit.length ? `Аудит процесса исполнителя: ${esc(res.audit.join("; "))}` :
-    "Аудит процесса исполнителя: чисто — ни файлов вне своей папки, ни сети, ни процессов.";
-  const seal = res.seal ? "Печать сети стояла на исполнителе и процессах модели." :
-    "Печати сети не было: " + (res.net === "netns" ? "сеть у процесса модели отнята пустым сетевым пространством." : "—");
-  const tokens = res.tokens ? `<p class="hint">Токены облака (со слов поставщика): вопрос ${res.tokens.in}, ответ ${res.tokens.out}.</p>` : "";
-  v.innerHTML = `<div class="verdict-head ${ok ? "ok" : "bad"}">${head}</div>
-    <p class="hint">${audit}<br>${seal}</p>${res.open_note ? `<p class="hint">${esc(res.open_note)}</p>` : ""}${tokens}
-    ${groups}<p class="hint tiny">Нажми на группу — откроются законы. «Не применим» — в этом прогоне нечему было его задеть.</p>${zip}`;
+  renderVerdict(r);
 }
 
-function again() {
-  $("setup").classList.remove("hidden"); $("live").classList.add("hidden"); $("verdict").classList.add("hidden");
-  $("btnAgain").classList.add("hidden"); banner(""); note(""); activity = {text: "", since: 0};
+function movesHtml(i) {
+  const turns = {}, pre = [];
+  for (const ev of events) {
+    if (ev.contour !== i) continue;
+    if (ev.type === "turn") turns[ev.n] = {n: ev.n, q: ev, a: null, fx: []};
+    else if (ev.type === "answer" && turns[ev.n]) turns[ev.n].a = ev;
+    else if ((ev.type === "effect" || ev.type === "agent") && turns[ev.n]) turns[ev.n].fx.push(ev);
+    else if (ev.type === "effect" && !ev.n) pre.push(ev);
+  }
+  const fxHtml = (e) => e.type === "agent" ? `<div class="agent">${esc(t("agent_said", {t: e.text}))}</div>`
+    : (() => { const x = effectText(e, LANG); return `<div class="${x.cls}">${esc(x.text)}</div>`; })();
+  let html = Object.values(turns).sort((x, y) => y.n - x.n).map((tu) => {
+    const a = tu.a, k = `${i}-${tu.n}`;
+    const said = !a ? `<span class="said none">${t("asking_now")}</span>`
+      : a.move === "молчит" ? `<span class="said none">${esc(MOVE[LANG]["молчит"])}</span>`
+      : `<span class="said">${esc(a.line || "…")}</span>`;
+    const means = a && a.move !== "молчит" ? moveMeaning(a.move, a.line || "", LANG) : "";
+    const fx = tu.fx.map(fxHtml).join("");
+    const raw = `<details class="raw" data-k="${k}" ${openRaw.has(k) ? "open" : ""}><summary>${t("raw")}</summary>
+      <div class="small">${t("q_cap", {b: tu.q.q_len, f: tu.q.fee})}</div><pre>${esc(tu.q.q)}</pre>`
+      + (a && a.a !== null ? `<div class="small">${t("a_cap")}</div><pre class="m">${esc(a.a)}</pre>` : "") + `</details>`;
+    return `<div class="turn"><div class="top"><span class="no">${t("turn", {n: tu.n})}</span>${said}<span class="secs">${a ? a.seconds + " " + sec() : ""}</span></div>
+      ${means ? `<div class="means">${esc(means)}</div>` : ""}${fx ? `<div class="fx">${fx}</div>` : ""}${raw}</div>`;
+  }).join("");
+  if (pre.length) html += `<div class="turn"><div class="top"><span class="pre0">${t("before")}</span></div><div class="fx">${pre.map(fxHtml).join("")}</div></div>`;
+  return html;
+}
+
+function renderVerdict(r) {
+  const v = $("verdictCard");
+  if (live(r)) { v.classList.add("hidden"); return; }
+  v.classList.remove("hidden");
+  const links = `<p class="small">${r.state === "ошибка" ? "" : `<a href="/api/zip/${r.id}?t=${TOKEN}">${t("zip")}</a> · `}<a href="#" id="again">${t("again")}</a></p>`;
+  if (r.state !== "готово" || !r.result || r.result.stopped) {
+    const stopped = r.state === "остановлено";
+    v.innerHTML = `<div class="verdict bad"><b>${t(stopped ? "st_stopped" : "st_error")}</b>${t(stopped ? "stopped_text" : "error_text")}</div>${links}`;
+  } else {
+    const res = r.result, ok = res.broken.length === 0;
+    const head = ok ? `<b>${t("verdict_ok")}</b>${t("verdict_ok_sub", {h: res.laws_holds, na: res.laws_na})}` : `<b>${t("verdict_bad", {k: res.broken.join(", ")})}</b>`;
+    const G = Object.fromEntries(INFO.groups.map((g) => [g.id, g]));
+    const dot = (s) => s === "держится" ? "h" : s === "нарушен" ? "b" : "";
+    const stname = (s) => t(s === "держится" ? "st_h" : s === "нарушен" ? "st_b" : "st_na");
+    const groups = res.groups.map((g) => {
+      const [title, about] = G[g.id][LANG];
+      const held = g.items.filter((x) => x.status === "держится").length;
+      return `<div class="group"><div class="gh" data-g="${g.id}"><span class="dot ${dot(g.status)}"></span><span class="t">${esc(title)}</span>
+        <span class="c">${t("laws_n", {h: held, n: g.items.length})}</span></div><div class="ga">${esc(about)}</div>
+        <div class="laws ${openGroups.has(g.id) ? "" : "hidden"}">${g.items.map((x) => `<div class="law"><span class="dot ${dot(x.status)}" style="margin-top:6px"></span>
+          <div>${esc((INFO.laws[x.key] || ["", ""])[LANG === "ru" ? 0 : 1])} <span class="st">— ${stname(x.status)}${x.status === "нарушен" ? ": " + esc(x.detail) : ""}</span></div>
+          <span class="key">${esc(x.key)}</span></div>`).join("")}</div></div>`;
+    }).join("");
+    const audit = res.audit.length ? t("audit_bad", {e: res.audit.join("; ")}) : t("audit_ok");
+    const seal = res.seal ? t("seal_ok") : res.net === "netns" && !res.open ? t("seal_netns") : t("seal_none");
+    const tok = res.tokens ? `<p class="small">${t("tokens", {i: res.tokens.in, o: res.tokens.out})}</p>` : "";
+    v.innerHTML = `<div class="verdict ${ok ? "ok" : "bad"}">${head}</div>
+      <p class="small">${t("verdict_explain")}</p><p class="small">${audit} ${seal}</p>
+      ${res.open ? `<p class="small">${t("open_note")}</p>` : ""}${tok}${groups}${links}`;
+    for (const gh of v.querySelectorAll(".gh")) gh.onclick = () => {
+      const id = gh.dataset.g; openGroups.has(id) ? openGroups.delete(id) : openGroups.add(id);
+      gh.parentElement.querySelector(".laws").classList.toggle("hidden");
+    };
+  }
+  $("again").onclick = (e) => { e.preventDefault(); newRun(); };
+}
+
+function newRun() {
+  LAST = null; events = []; movesKey = "";
+  for (const id of ["statusCard", "verdictCard", "movesCard"]) $(id).classList.add("hidden");
+  $("notes").innerHTML = ""; $("how").classList.remove("hidden");
   api("/api/info").then((i) => { INFO = i; renderLocal(); checkReady(); });
+  window.scrollTo(0, 0);
 }
 
-// Строка хода меняется, пока идёт шаг: застывшая строка с многоточием
-// читается человеком как «зависло», даже когда работа идёт.
-setInterval(() => {
-  if (!activity.text) { $("progress").textContent = ""; return; }
-  const s = activity.since ? Math.max(0, Math.round(Date.now() / 1000 - clockSkew - activity.since)) : null;
-  $("progress").textContent = running && s !== null ? `${activity.text} · ${s} с` : activity.text;
-}, 250);
+// Строка хода меняется, пока идёт шаг: застывшая строка читается человеком
+// как «зависло», даже когда работа идёт.
+function updateActivity() {
+  if (!LAST) return;
+  const a = LAST.activity, now = Date.now() / 1000 - clockSkew, on = live(LAST);
+  const text = t("a_" + a.code, {c: a.contour, n: a.n});
+  const parts = [];
+  if (text) parts.push(on ? `${text} · ${clock(now - a.since)}` : text);
+  parts.push(t("elapsed", {t: clock((on ? now : LAST.now) - LAST.t0)}));
+  $("act").textContent = parts.join("    ·    ");
+}
+setInterval(() => { if (running) updateActivity(); }, 250);
 
+// раскрытое «целиком» не схлопывается при обновлении списка
+document.addEventListener("toggle", (e) => {
+  const d = e.target;
+  if (d.classList && d.classList.contains("raw")) d.open ? openRaw.add(d.dataset.k) : openRaw.delete(d.dataset.k);
+}, true);
+
+// ---------------------------------------------------------------- начало
 async function init() {
-  try { INFO = await api("/api/info"); } catch (e) { banner("Экран не получил сведений: " + e.message); return; }
-  $("preset").innerHTML = INFO.presets.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
-  $("preset").onchange = onPreset; onPreset();
+  for (const b of document.querySelectorAll("[data-lang]")) b.onclick = () => {
+    LANG = b.dataset.lang; try { localStorage.setItem("prostranstvo_lang", LANG); } catch (e) {}
+    const s = INFO && INFO.scenarios.find((x) => x.id === scenario);
+    applyLang();
+    if (s) $("words").value = s[LANG].words, countWords();
+  };
+  applyLang();
+  try { INFO = await api("/api/info"); } catch (e) { $("how").textContent = e.message; return; }
+  $("preset").onchange = onPreset;
   for (const b of $("seg").children) b.onclick = () => setContour(b.dataset.c);
-  renderLocal(); renderChips(); pickScenario(Object.keys(INFO.scenarios)[0]);
-  $("words").oninput = () => { scenario = null; for (const b of document.querySelectorAll("[data-s]")) b.classList.remove("on"); countWords(); };
+  $("words").oninput = () => { if (scenario !== "own") { scenario = "own"; renderScenarios(); } countWords(); };
+  $("path").oninput = () => { if ($("path").value.trim()) { localPick = ""; renderLocal(); } checkReady(); };
   for (const id of ["base", "model", "key"]) $(id).oninput = checkReady;
-  $("btnModels").onclick = listModels; $("btnCheck").onclick = checkCloud;
-  $("btnDetails").onclick = () => { const d = $("details"); d.classList.toggle("hidden");
-    $("btnDetails").textContent = d.classList.contains("hidden") ? "Подробно ▾" : "Подробно ▴"; };
-  $("btnStart").onclick = start; $("btnStop").onclick = stop; $("btnAgain").onclick = again;
-  $("envInfo").textContent = `${INFO.platform}. Агент собран: ${INFO.agent || "нет"}. Прогоны лежат в ${INFO.runs_dir}.`;
+  $("btnDl").onclick = download; $("btnModels").onclick = listModels; $("btnCheck").onclick = checkCloud;
+  $("btnStart").onclick = start; $("btnStop").onclick = stop;
+  $("btnHow").onclick = () => { $("how").classList.remove("hidden"); $("how").scrollIntoView({behavior: "smooth"}); };
+  if (INFO.models.length) localPick = INFO.models[0].path;
+  renderPresets(); $("base").value = presetObj().base;
+  applyLang();
+  pickScenario("work");
   setContour(INFO.closed_ok ? "сомкнутый" : "разомкнутый");
   const r = await api("/api/run?since=0");
-  if (r.state && r.state !== "нет" && !["готово", "остановлено", "ошибка"].includes(r.state)) {
-    // прогон уже идёт (страницу открыли заново)
-    running = true; $("setup").classList.add("hidden"); $("live").classList.remove("hidden");
-    $("btnStart").disabled = true; $("btnStop").disabled = false;
-    const two = r.settings.second === "такой же";
-    $("contours").className = "contours" + (two ? " two" : "");
-    $("contours").innerHTML = [1, 2].filter((i) => i === 1 || two).map((i) =>
-      `<div class="card"><div class="label">Агент ${i}</div><div class="stats" id="st${i}"></div><div id="t${i}"></div></div>`).join("");
-    poll = setInterval(tick, 700); tick();
+  if (r.state && !["нет", "готово", "остановлено", "ошибка"].includes(r.state)) {      // страницу открыли заново посреди прогона
+    running = true; $("how").classList.add("hidden"); checkReady(); poll = setInterval(tick, 700); tick();
   }
 }
 init();

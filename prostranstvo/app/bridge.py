@@ -76,7 +76,7 @@ class Bridge:
                     req = json.loads(line)
                     question = base64.b64decode(req["q"]).decode("utf-8", "replace")
                 except (ValueError, KeyError) as e:
-                    self._fail(f"передатчик прислал непонятное: {e}")
+                    self._fail(f"передатчик прислал непонятное / unreadable relay line: {e}")
                     return
                 t0 = time.monotonic()
                 self.on_event("облако спрошено", length=len(question.encode()))
