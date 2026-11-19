@@ -39,7 +39,7 @@ from pathlib import Path
 
 from app import seal as sealmod
 from app import texts
-from app.bridge import Bridge
+from app.bridge import Bridge, question_mark
 from app.cloud import Cloud
 from core.mir9 import W6
 from experiments.agents9 import build as agent_build
@@ -69,7 +69,7 @@ WORDS_AGENT_READS = 600          # байт: столько слов челов�
 ANSWER_MAX = 1024                # байт: место под ответ после вопроса в памяти agent9 (AMAX)
 TURNS_MAX = 60                   # ходов у agent9 (MAX_TURNS)
 EFFECT_FIELDS = ("rule", "obj", "code", "cap", "op", "task", "part", "payer", "receiver", "price", "charge",
-                 "node", "first")
+                 "node", "first", "why")
 
 
 class Refusal(ValueError):
@@ -315,6 +315,7 @@ class Run(threading.Thread):
         self.activity = {"code": "starting", "since": time.time()}
         self.notes: list[dict] = []
         self.cloud_events: list[dict] = []
+        self.cut_questions: set[str] = set()   # отпечатки вопросов, ответ на которые облако обрезало
         self.tally = {1: Tally(), 2: Tally()}
         self.events: list[dict] = []          # для экрана, по порядку
         self.result: dict | None = None
@@ -358,6 +359,8 @@ class Run(threading.Thread):
     def _on_cloud(self, kind: str, **kw) -> None:
         with self.lock:
             self.cloud_events.append({"t": time.time(), "kind": kind, **kw})
+            if kind == "облако ответило" and kw.get("cut"):
+                self.cut_questions.add(kw.get("q"))
             if kind == "облако не ответило":
                 self.notes.append({"code": "cloud_failed", "why": kw.get("reason")})
 
@@ -402,9 +405,12 @@ class Run(threading.Thread):
                     turn["a"], turn["move"] = a, (m or "не разобран")
                     t.unparsed += m is None
                 self._act("moving", contour=i, n=turn["n"])
+                mark = question_mark(turn["q"])
+                cut = mark in self.cut_questions
+                self.cut_questions.discard(mark)
                 self.events.append({"type": "answer", "contour": i, "n": turn["n"], "a": turn["a"],
                                     "line": first_line(turn["a"] or "")[:200], "move": turn["move"],
-                                    "seconds": round(now - turn["asked"], 1)})
+                                    "seconds": round(now - turn["asked"], 1), "cut": cut})
                 return
             if t is None:
                 return

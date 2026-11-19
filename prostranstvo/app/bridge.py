@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import shutil
@@ -33,6 +34,14 @@ import threading
 import time
 
 from app.cloud import Cloud, CloudError, ask
+
+
+def question_mark(question: str) -> str:
+    """Короткий отпечаток вопроса: по нему экран сводит событие связи с
+    ходом из журнала. Совпадение отпечатков у разных вопросов на экране
+    дало бы подсказку не у того хода — 16 знаков sha256 этого не допускают
+    на деле."""
+    return hashlib.sha256(question.encode("utf-8")).hexdigest()[:16]
 
 # Сколько секунд срока ответа связь оставляет себе на передачу назад: срок
 # считает исполнитель (ModelLink.timeout), и ответ, пришедший к нему позже,
@@ -89,8 +98,12 @@ class Bridge:
                     self.questions += 1
                     self.tokens["in"] += int(used.get("in") or 0)
                     self.tokens["out"] += int(used.get("out") or 0)
+                # Отпечаток вопроса — чтобы экран нашёл, к какому ходу
+                # относится обрезка: вопрос в журнале исполнителя тот же,
+                # байт в байт (передатчик их не трогает).
                 self.on_event("облако ответило", seconds=round(time.monotonic() - t0, 1),
-                              tokens=dict(self.tokens))
+                              tokens=dict(self.tokens), cut=bool(used.get("cut")),
+                              q=question_mark(question))
                 f.write(json.dumps({"a": base64.b64encode(text.encode("utf-8")).decode()}).encode() + b"\n")
                 f.flush()
         except OSError:

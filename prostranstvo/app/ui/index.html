@@ -131,6 +131,7 @@
   .fx .bad::before { content: "✗"; }
   .fx .info::before { content: "·"; color: var(--muted); }
   .fx .agent { color: var(--muted); font-style: italic; }
+  .cut { margin: 6px 0 0 62px; font-size: 14px; color: var(--alarm); }
   .fx .agent::before { content: "↳"; }
   details.raw { margin: 6px 0 0 62px; }
   details.raw summary { font-size: 12px; color: var(--muted); cursor: pointer; }
@@ -343,6 +344,7 @@ const T = {
   raw: "Вопрос модели и ответ целиком", q_cap: "Вопрос модели — {b} байт, плата {f}", a_cap: "Ответ модели — только слова, прав он не даёт",
   before: "До первого вопроса",
   agent_said: "агент понял итог так: {t}",
+  cut: "Облако оборвало ответ на пределе «Токенов на ответ облачной модели» ({n}). Так бывает у моделей, которые сначала «рассуждают»: предел уходит на размышление. Увеличь число в «Параметрах» — таким моделям нужно 2000–4000.",
   verdict_ok: "Песочница выдержала: нарушений нет",
   verdict_ok_sub: "Проверено законов: {h}. Не задеты этим прогоном: {na}.",
   verdict_bad: "Нарушены законы: {k}",
@@ -430,6 +432,7 @@ const T = {
   raw: "Full question and answer", q_cap: "Question to the model — {b} bytes, cost {f}", a_cap: "The model's answer — words only, it grants no rights",
   before: "Before the first question",
   agent_said: "the agent understood the result as: {t}",
+  cut: "The cloud cut the answer off at the “Tokens per cloud answer” limit ({n}). This happens with models that “reason” first: the limit goes on thinking. Raise the number in Parameters — such models need 2000–4000.",
   verdict_ok: "The sandbox held: no violations",
   verdict_ok_sub: "Laws checked: {h}. Not touched by this run: {na}.",
   verdict_bad: "Laws violated: {k}",
@@ -497,6 +500,13 @@ const CODE = {
  en: {"-1": "no right — the agent has no such resource or operation", "-2": "no such name", "-3": "not enough budget",
       "-4": "address outside the agent's memory", "-5": "limit exceeded", "-6": "condition not met", "-7": "the model is silent"}};
 
+// Почему среда не приняла ответ — поле «why» записи отказа (sandbox/executor6.py, _submit).
+const SUBMIT_WHY = {
+ ru: {"ответ неверен": "ответ неверен", "уже принято": "эта часть уже принята раньше",
+      "нет такой задачи": "нет такой задачи", "мало бюджета": "не хватает бюджета"},
+ en: {"ответ неверен": "the answer is wrong", "уже принято": "this part was already accepted earlier",
+      "нет такой задачи": "no such task", "мало бюджета": "not enough budget"}};
+
 // Что сделала среда — по записи журнала.
 function effectText(ev, L) {
   const ru = L === "ru", recv = (r) => r === "выход" ? (ru ? "выход" : "the output") : r;
@@ -517,7 +527,8 @@ function effectText(ev, L) {
         {p: ev.part, t: ev.task, who: T[L][ev.payer === "агент" ? "payer_agent" : "payer_env"]})};
     case "отказ":
       return {cls: "bad", text: ev.task !== undefined
-        ? fill(ru ? "ответ неверен и не принят; агент платит {c}" : "the answer is wrong and not accepted; the agent pays {c}", {c: ev.charge ?? 0})
+        ? fill(ru ? "ответ не принят: {w}; агент платит {c}" : "the answer was not accepted: {w}; the agent pays {c}",
+               {w: (SUBMIT_WHY[L][ev.why] || ev.why || "?"), c: ev.charge ?? 0})
         : fill(ru ? "{r} не принял доставку; плата {c}" : "{r} refused the delivery; cost {c}", {r: recv(ev.receiver), c: ev.charge ?? 0})};
     case "списание":
       return {cls: "info", text: fill(ru ? "за доставку в {r} списано {p}" : "{p} charged for delivery to {r}", {r: recv(ev.receiver), p: ev.price})};
@@ -790,6 +801,12 @@ function render(r) {
   renderVerdict(r);
 }
 
+// Предел токенов, с которым шёл прогон: заданный или по умолчанию (половина предела ответа).
+function cutLimit() {
+  const c = LAST && LAST.settings && LAST.settings.cloud;
+  return c && c.max_tokens ? c.max_tokens : "?";
+}
+
 function movesHtml(i) {
   const own = LAST && LAST.settings.agent !== "встроенный";
   const turns = {}, pre = [];
@@ -813,7 +830,7 @@ function movesHtml(i) {
       <div class="small">${t("q_cap", {b: tu.q.q_len, f: tu.q.fee})}</div><pre>${esc(tu.q.q)}</pre>`
       + (a && a.a !== null ? `<div class="small">${t("a_cap")}</div><pre class="m">${esc(a.a)}</pre>` : "") + `</details>`;
     return `<div class="turn"><div class="top"><span class="no">${t("turn", {n: tu.n})}</span>${said}<span class="secs">${a ? a.seconds + " " + sec() : ""}</span></div>
-      ${means ? `<div class="means">${esc(means)}</div>` : ""}${fx ? `<div class="fx">${fx}</div>` : ""}${raw}</div>`;
+      ${means ? `<div class="means">${esc(means)}</div>` : ""}${a && a.cut ? `<div class="cut">${esc(t("cut", {n: cutLimit()}))}</div>` : ""}${fx ? `<div class="fx">${fx}</div>` : ""}${raw}</div>`;
   }).join("");
   if (pre.length) html += `<div class="turn"><div class="top"><span class="pre0">${t(own ? "before_own" : "before")}</span></div><div class="fx">${pre.map(fxHtml).join("")}</div></div>`;
   return (own ? `<p class="small">${t("own_moves")}</p>` : "") + html;

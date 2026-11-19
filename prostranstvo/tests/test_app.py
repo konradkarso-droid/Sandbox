@@ -109,10 +109,13 @@ def test_no_seal_no_unshare_refuses_closed(monkeypatch):
 
 class FakeCloud:
     """Местный сервер облака. Ответ — ход из SCRIPT по числу строк истории
-    в вопросе, как у serve.py --script; mode: «ok», «500», «sleep»."""
+    в вопросе, как у serve.py --script; mode: «ok», «500», «sleep».
+    cut — номера строк истории, на которых ответ «обрывается на пределе»:
+    пустой текст и признак обрыва, как у рассуждающей модели."""
 
-    def __init__(self, mode: str = "ok", kind: str = "openai", script: list[str] | None = None):
-        self.mode, self.kind, self.script = mode, kind, script or SCRIPT
+    def __init__(self, mode: str = "ok", kind: str = "openai", script: list[str] | None = None,
+                 cut: frozenset = frozenset()):
+        self.mode, self.kind, self.script, self.cut = mode, kind, script or SCRIPT, cut
         self.got: list[dict] = []
         self.headers: list[dict] = []
         fake = self
@@ -141,10 +144,15 @@ class FakeCloud:
                 q = req["messages"][0]["content"]
                 k = sum(1 for line in q.split("\n") if line.startswith("> "))
                 a = fake.script[k] if k < len(fake.script) else "СТОП"
+                cut = k in fake.cut
+                if cut:
+                    a = ""
                 if fake.kind == "anthropic":
-                    out = {"content": [{"type": "text", "text": a}], "usage": {"input_tokens": 7, "output_tokens": 2}}
+                    out = {"content": [{"type": "text", "text": a}], "usage": {"input_tokens": 7, "output_tokens": 2},
+                           "stop_reason": "max_tokens" if cut else "end_turn"}
                 else:
-                    out = {"choices": [{"message": {"content": a}}], "usage": {"prompt_tokens": 7, "completion_tokens": 2}}
+                    out = {"choices": [{"message": {"content": a}, "finish_reason": "length" if cut else "stop"}],
+                           "usage": {"prompt_tokens": 7, "completion_tokens": 2}}
                 body = json.dumps(out, ensure_ascii=False).encode()
                 self.send_response(200)
                 self.send_header("content-length", str(len(body)))
@@ -228,6 +236,9 @@ def test_open_contour_openai(agent, tmp_path):
     assert all(g["temperature"] == 0 and len(g["messages"]) == 1 for g in fake.got)
     assert {k.lower(): v for k, v in fake.headers[0].items()}["authorization"] == "Bearer sk-METKA-77q"
     assert res["tokens"] == {"in": 7 * len(SCRIPT), "out": 2 * len(SCRIPT)}
+    # ни один ответ не обрезан — подсказки об обрезке нет ни у одного хода
+    answers = [e for e in run.events if e["type"] == "answer"]
+    assert len(answers) == len(SCRIPT) and not any(e["cut"] for e in answers)
     # ключа нет ни в одном файле прогона
     for p in run.dir.rglob("*"):
         if p.is_file():
@@ -242,10 +253,59 @@ def test_open_contour_anthropic_protocol():
         text, used = ask(c, "Последние ходы и итоги:\n> А\n", time.monotonic() + 10)
     finally:
         fake.close()
-    assert text == SCRIPT[1] and used == {"in": 7, "out": 2}
+    assert text == SCRIPT[1] and used == {"in": 7, "out": 2, "cut": False}
     h = {k.lower(): v for k, v in fake.headers[0].items()}
     assert h["x-api-key"] == "k-1" and h["anthropic-version"] == "2023-06-01" and "authorization" not in h
     assert fake.got[0]["max_tokens"] == 64 and fake.got[0]["temperature"] == 0
+
+
+def test_cut_answer_marked_on_its_move(agent, tmp_path):
+    """Облако оборвало ответ на пределе: у этого хода — подсказка, у
+    остальных — нет; сам ответ модели не тронут (пустой и остаётся)."""
+    fake = FakeCloud("ok", "openai", cut=frozenset({2}))
+    try:
+        s = settings_from({"contour": "разомкнутый", "words": _words(),
+                           "cloud": {"kind": "openai", "base": fake.base, "model": "м", "key": ""}})
+        run = _run(s, agent, tmp_path)
+    finally:
+        fake.close()
+    snap = run.snapshot()
+    assert snap["state"] == "готово", snap["notes"]
+    answers = [e for e in run.events if e["type"] == "answer"]
+    cut = [e for e in answers if e["cut"]]
+    assert len(cut) == 1 and cut[0]["n"] == 3 and cut[0]["a"] == "" and cut[0]["move"] == "не разобран"
+    assert len(answers) > 1
+    assert snap["result"]["broken"] == []
+
+
+def test_submit_refusal_carries_reason(agent, tmp_path):
+    """Повторная сдача уже принятой задачи: экран получает причину отказа
+    («уже принято»), а не одно слово «отказ» — иначе он показал бы
+    «ответ неверен», которого не было."""
+    fake = FakeCloud("ok", "openai", script=["ЧИТАЙ ЗАДАНИЯ", "РЕШИ 1", "РЕШИ 1", "СТОП"])
+    try:
+        s = settings_from({"contour": "разомкнутый", "words": _words(),
+                           "cloud": {"kind": "openai", "base": fake.base, "model": "м", "key": ""}})
+        run = _run(s, agent, tmp_path)
+    finally:
+        fake.close()
+    assert run.snapshot()["state"] == "готово"
+    refused = [e for e in run.events if e["type"] == "effect" and e["kind"] == "отказ" and "task" in e]
+    assert [(e["n"], e["why"]) for e in refused] == [(3, "уже принято")]
+    assert run.tally[1].accepted == 1
+
+
+def test_cut_flag_both_protocols():
+    for kind in ("openai", "anthropic"):
+        fake = FakeCloud("ok", kind, cut=frozenset({0}))
+        try:
+            c = Cloud(kind, fake.base, "м", "k", 64)
+            cut = ask(c, "вопрос без истории", time.monotonic() + 10)
+            whole = ask(c, "> одна строка истории\n", time.monotonic() + 10)
+        finally:
+            fake.close()
+        assert cut == ("", {"in": 7, "out": 2, "cut": True}), kind
+        assert whole == (SCRIPT[1], {"in": 7, "out": 2, "cut": False}), kind
 
 
 def test_cloud_failure_is_silence(agent, tmp_path):

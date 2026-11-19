@@ -125,16 +125,22 @@ def _body(c: Cloud, question: str) -> tuple[str, dict]:
 
 
 def _text(c: Cloud, r: dict) -> tuple[str, dict]:
+    """Текст ответа и учёт поставщика. «cut» — поставщик сам сказал, что
+    оборвал ответ на пределе токенов. Рассуждающие модели так теряют весь
+    ответ: предел уходит на размышление, текст пустой. Признак нужен только
+    экрану — ответ модели он не меняет."""
     if c.kind == "anthropic":
         text = "".join(x.get("text", "") for x in r.get("content", []) if x.get("type") == "text")
         u = r.get("usage") or {}
-        return text, {"in": u.get("input_tokens", 0), "out": u.get("output_tokens", 0)}
+        return text, {"in": u.get("input_tokens", 0), "out": u.get("output_tokens", 0),
+                      "cut": r.get("stop_reason") == "max_tokens"}
     ch = (r.get("choices") or [{}])[0]
     text = ((ch.get("message") or {}).get("content")) or ""
     if isinstance(text, list):               # некоторые отдают куски
         text = "".join(x.get("text", "") for x in text if isinstance(x, dict))
     u = r.get("usage") or {}
-    return text, {"in": u.get("prompt_tokens", 0), "out": u.get("completion_tokens", 0)}
+    return text, {"in": u.get("prompt_tokens", 0), "out": u.get("completion_tokens", 0),
+                  "cut": ch.get("finish_reason") == "length"}
 
 
 def ask(c: Cloud, question: str, deadline: float) -> tuple[str, dict]:
