@@ -76,6 +76,31 @@ def test_seal_check_passes_probe():
     assert sealmod.check(True) is None
 
 
+@pytest.mark.parametrize("allow_unix", [False, True])
+def test_network_seal_is_inherited_after_exec(allow_unix):
+    probe = '''
+import socket
+import sys
+from sandbox.model9 import probe_net
+
+why = probe_net()
+assert why is None, why
+try:
+    socket.socket(socket.AF_UNIX, socket.SOCK_STREAM).close()
+except PermissionError:
+    assert sys.argv[1] == "False"
+else:
+    assert sys.argv[1] == "True"
+'''
+    result = _child(
+        "import os, sys\n"
+        "from app.seal import seal\n"
+        f"seal(allow_unix={allow_unix!r})\n"
+        f"os.execv(sys.executable, [sys.executable, '-c', {probe!r}, {str(allow_unix)!r}])\n"
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_broken_seal_fails_probe():
     """Порча печати: фильтр, который смотрит не тот вызов, — сокет создаётся,
     и строгая проба §18 это ловит: процесс модели под такой «печатью» не

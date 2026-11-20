@@ -7,6 +7,10 @@ on:
         description: Вызвать настоящую Astra (расход API-кредитов)
         type: boolean
         default: false
+      extended:
+        description: Выполнить шесть сценариев изоляции (требует live)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -15,7 +19,7 @@ jobs:
   sandbox:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: prostranstvo
@@ -27,10 +31,21 @@ jobs:
         run: |
           set -o pipefail
           python3 start.py --check | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Тесты границ с локальным получателем
+        run: |
+          set -o pipefail
+          .venv/bin/python3 -m pip install pytest
+          .venv/bin/python3 -m pytest -q -rs tests/test_app.py tests/test_gateway.py tests/test_exchange.py \
+            | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Прогон оплачиваемого файлового обмена с Astra
         if: inputs.live
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ASTRA_EXTENDED: ${{ inputs.extended }}
         run: |
           set -o pipefail
-          .venv/bin/python3 -m experiments.astra_acceptance | tee -a "$GITHUB_STEP_SUMMARY"
+          args=()
+          if [[ "$ASTRA_EXTENDED" == "true" ]]; then
+            args+=(--extended)
+          fi
+          .venv/bin/python3 -m experiments.astra_acceptance "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
