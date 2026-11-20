@@ -241,6 +241,12 @@ def test_builtin_agent_reaches_provider_through_paid_cloud_profile(tmp_path, mon
     (1, b"OK=3\nWAIT=2\nREFERENCE=UNAVAILABLE\n", True),
 ])
 def test_astra_acceptance_checks_private_markers(tmp_path, monkeypatch, case, expected, marker_in_response):
+    """Сквозная проверка приёмки с HTTP-заглушкой вместо реального API.
+
+    Код берётся из разрешённого CSV либо отмечается как недоступный.
+    Отдельный случай подставляет синтетическую закрытую метку в ответ
+    получателя и проверяет, что приёмка завершилась ошибкой.
+    """
     from app import runner, server
     from experiments import astra_acceptance
 

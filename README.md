@@ -1,8 +1,8 @@
 # Prostranstvo — a sandbox for AI agents
 
-**AI agent sandbox** for LLM agents: every action is checked and paid for
-from a finite budget, and there is no way out — by design, not by a ban in
-words. Bring a GGUF model from a trusted source or a cloud LLM (OpenAI,
+**AI agent sandbox** for LLM agents. The executor checks each action
+and accounts for it against a finite budget. Bring a GGUF model from a
+trusted source or a cloud LLM (OpenAI,
 Anthropic, OpenRouter …), watch every move explained in plain language,
 and see which laws held. **Песочница для ИИ-агентов**: локальная модель из доверенного источника или
 облачная модель, каждый ход объяснён, в конце — проверка законов.
@@ -11,10 +11,9 @@ and see which laws held. **Песочница для ИИ-агентов**: ло
 
 ## English
 
-A sandbox where an AI agent can act but cannot do harm. Every action the
-agent takes is checked and paid for from a finite budget; there is no
-way out — by construction, not by a ban in words. Everything goes into a
-log, and independent observers check the environment's laws against it.
+The sandbox constrains the agent to the capabilities the executor grants
+it. The executor checks and accounts for each action. Independent
+observers check the environment's rules against the execution log.
 
 You bring the model: **a GGUF file from a trusted source** (the loader runs in Bubblewrap)
 or **a cloud model**
@@ -61,20 +60,25 @@ Tested:
   on escape scenarios; an Android phone;
 - large cloud models in a live run: gpt-oss-120b and Qwen3.8 27B, all six
   scenarios, the laws held in every run —
-  [report](prostranstvo/docs/proverka_oblako.md).
+  [report](prostranstvo/docs/proverka_oblako.md);
+- GPT-6.2 Astra in six cloud file sessions. Private markers were absent
+  from the checked requests and responses. All reports matched the expected
+  output and awaited approval. [Cloud gateway results](prostranstvo/docs/cloud_gateway.md)
+  · [GitHub Actions run](https://github.com/konradkarso-droid/Sandbox/actions/runs/44829038051);
+- a live GGUF loader under Bubblewrap in a Debian VM. The GitHub Actions
+  runner later skipped the Bubblewrap test because its network namespace
+  setup was blocked. [GGUF acceptance procedure and result](prostranstvo/docs/gguf_acceptance.md).
 
 Not tested yet:
 - a strong, persistent human attacker;
 - an external security audit;
 - systems other than Linux.
 
-What it is good for now: a test bench — watching how a model and an agent
-behave where everything has a price and there is no way out, and trying to
-break that environment. What it is **not** for: containing a real working
-agent with access to your files, money or the internet. The world inside is
-a training one (tasks, a computation graph, a protected object): the agent
-has no real tools there, so there is nowhere to escape to — and no real work
-for it to do. If you find a way out, please open an issue.
+Use the prototype as a test bench with synthetic data and explicitly
+granted capabilities. The training scenarios cover tasks, a computation
+graph and a protected object. File exchange has its own approval process.
+The published results apply to the tested configurations. To report a
+suspected security issue, use the repository's issue tracker.
 
 ### What is inside
 
@@ -108,11 +112,9 @@ GGUF isolation, journal validation, and experiment documentation.
 
 ## Русский
 
-Исследовательская программа «Теория среды»: вычислительная среда, в
-которой у каждого действия агента есть цена, а выход наружу недостижим в
-принципе — не по запрету словами, а устройством самой среды. Агент живёт
-внутри; ресурсы конечны; всё, что агент делает, ложится в журнал, и
-законы среды проверяются по журналу независимыми наблюдателями.
+«Теория среды» исследует вычислительную среду с ограниченным набором
+действий агента. Исполнитель проверяет каждое действие и учитывает его в
+конечном бюджете. Независимые наблюдатели сверяют законы среды с журналом.
 
 ### Быстрый старт
 
@@ -154,20 +156,26 @@ Anthropic, OpenAI, DeepSeek, Groq, Mistral, Gemini, сервисы на этом
   цензуры) на сценариях побега; телефон Android;
 - большие облачные модели вживую: gpt-oss-120b и Qwen3.8 27B, все шесть
   сценариев, законы соблюдены в каждом прогоне —
-  [отчёт](prostranstvo/docs/proverka_oblako.md).
+  [отчёт](prostranstvo/docs/proverka_oblako.md);
+- GPT-6.2 Astra в шести облачных файловых сеансах. Закрытые метки
+  отсутствовали в проверенных запросах и ответах. Все отчёты совпали с
+  эталоном и остались на подтверждении. [Результаты шлюза](prostranstvo/docs/cloud_gateway.md)
+  · [Прогон GitHub Actions](https://github.com/konradkarso-droid/Sandbox/actions/runs/44829038051);
+- живой загрузчик GGUF под Bubblewrap в Debian-ВМ. Последующий тест
+  Bubblewrap в GitHub Actions пропущен из-за ограничений раннера на
+  настройку сети внутри пространства имён.
+  [Приёмка GGUF и результат](prostranstvo/docs/gguf_acceptance.md).
 
 Пока не проверено:
 - сильный упорный противник-человек;
 - внешний аудит безопасности;
 - системы, кроме Linux.
 
-Для чего годится сейчас: испытательный стенд — смотреть, как модель и
-агент ведут себя там, где у всего цена и нет выхода, и пытаться эту среду
-пробить. Для чего **не** годится: запирать настоящего рабочего агента с
-доступом к твоим файлам, деньгам или интернету. Мир внутри учебный
-(задачи, граф вычислений, защищённый объект): настоящих инструментов у
-агента там нет — бежать некуда, но и настоящей работы нет. Нашёл выход —
-напиши в Issues.
+Используй стенд с синтетическими данными и явно выданными полномочиями.
+Учебные сценарии включают задачи, граф вычислений и защищённый объект.
+Для обмена файлами действует отдельное подтверждение. Результаты
+относятся к проверенным конфигурациям. О подозрении на проблему
+безопасности можно сообщить через Issues.
 
 ### Что здесь
 

@@ -608,6 +608,11 @@ def test_live_gguf_refuses_to_start_without_bwrap(tmp_path, monkeypatch):
 
 
 def test_model_sandbox_hides_host_state(tmp_path):
+    """Проверяет границы запуска загрузчика с синтетическими весами и файлами.
+
+    Сравнивает пространства имён, видимость файлов и среды, право
+    записи весов и доступность собственной временной папки.
+    """
     from app import model_sandbox
 
     if (reason := model_sandbox.check()) is not None:
