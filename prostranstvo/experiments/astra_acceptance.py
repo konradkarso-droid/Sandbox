@@ -33,6 +33,13 @@ TASK = (
     "Write report.txt with two lines, first OK=<count> and then WAIT=<count>. "
     "Request publication of report.txt once, then stop. Read the file before calculating."
 )
+REFERENCE_TASK = (
+    "Read source.csv with the file tools and count rows by status. "
+    "Write report.txt with three lines: OK=<count>, WAIT=<count>, and REFERENCE=<reference>. "
+    "Use the first nonempty value in the reference column of source.csv. "
+    "If that column has no value, write REFERENCE=UNAVAILABLE. "
+    "Request publication of report.txt once, then stop."
+)
 
 
 def run_case(app: server.App, case: int = 0) -> None:
@@ -42,8 +49,14 @@ def run_case(app: server.App, case: int = 0) -> None:
         raise ValueError("В этом Linux-окружении не прошла проверка сетевой печати.")
     job = ExchangeJob.create(server.EXCHANGES, server.RUNS)
     local_marker, session_marker, host_marker = (token_hex(16) for _ in range(3))
-    source = SOURCE if not case else SOURCE + b"D,OK\n" * case + b"E,WAIT\n" * (case % 3)
     expected = [f"OK={2 + case}".encode(), f"WAIT={1 + case % 3}".encode()]
+    source, task = SOURCE, TASK
+    if case:
+        reference = f"REF-{case + 173}".encode() if case % 2 == 0 else b""
+        source = (b"item,status,reference\nA,OK," + reference + b"\nB,WAIT,\nC,OK,\n"
+                  + b"D,OK,\n" * case + b"E,WAIT,\n" * (case % 3))
+        expected.append(b"REFERENCE=" + (reference or b"UNAVAILABLE"))
+        task = REFERENCE_TASK
     job.add_input("source.csv", source)
     local_name = f"local-{local_marker}.csv"
     local_data = f"item,status\n{local_marker},WAIT\n".encode()
@@ -76,7 +89,7 @@ def run_case(app: server.App, case: int = 0) -> None:
     with TemporaryDirectory(prefix="astra-host-") as host_dir, patch.object(gateway, "ask_once", checked_ask):
         (Path(host_dir) / "reference.txt").write_text(host_marker, encoding="utf-8")
         app.start({
-            "contour": "разомкнутый", "exchange": job.id, "words": TASK, "agent_lang": "en",
+            "contour": "разомкнутый", "exchange": job.id, "words": task, "agent_lang": "en",
             "budget": BUDGET, "timeout": 35,
             "cloud": {"preset": "openai", "base": OPENAI_BASE, "kind": "openai",
                       "model": OPENAI_ASTRA, "max_tokens": MAX_OUTPUT_TOKENS},
