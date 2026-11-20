@@ -1,9 +1,11 @@
 """Отдельный HTTP-получатель для проверки файлового шлюза."""
 
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+from pathlib import Path
 import socket
 import threading
 
@@ -116,6 +118,39 @@ def test_gateway_sends_only_paid_bound_request_and_rejects_replay(tmp_path, monk
             bridge.close()
 
 
+def test_expired_file_consent_sends_nothing(tmp_path, monkeypatch):
+    with provider() as (url, seen):
+        bridge, frame, _ = fixture_gateway(tmp_path, monkeypatch, url)
+        try:
+            bridge.expires = 0
+            assert bridge._send(1, frame)["status"] == "refused"
+            assert seen == []
+            rows = [json.loads(line) for line in bridge.receipts.read_bytes().splitlines()]
+            assert [row["status"] for row in rows] == ["refused"]
+        finally:
+            bridge.close()
+
+
+def test_concurrent_duplicate_charge_sends_one_request(tmp_path, monkeypatch):
+    with provider() as (url, seen):
+        bridge, frame, _ = fixture_gateway(tmp_path, monkeypatch, url)
+        start = threading.Barrier(2, timeout=5)
+
+        def send():
+            start.wait()
+            return bridge._send(1, frame)["status"]
+
+        try:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                first = executor.submit(send)
+                second = executor.submit(send)
+                assert sorted([first.result(), second.result()]) == ["answer", "refused"]
+            assert len(seen) == 1
+            assert gateway_observer.check(bridge.workdir, "fixture")[0] == "держится"
+        finally:
+            bridge.close()
+
+
 def test_unknown_receipt_keeps_charge_and_cannot_be_resent(tmp_path, monkeypatch):
     with provider(status=0) as (url, seen):
         bridge, frame, _ = fixture_gateway(tmp_path, monkeypatch, url)
@@ -130,16 +165,22 @@ def test_unknown_receipt_keeps_charge_and_cannot_be_resent(tmp_path, monkeypatch
             bridge.close()
 
 
-@pytest.mark.parametrize("model", ["test", "gpt-6.2-astra"])
-def test_builtin_agent_reaches_provider_through_paid_cloud_profile(tmp_path, monkeypatch, model):
-    answers = iter([
+@pytest.mark.parametrize(("model", "read_unavailable"), [
+    ("test", False),
+    ("gpt-6.2-astra", False),
+    ("gpt-6.2-astra", True),
+])
+def test_builtin_agent_reaches_provider_through_paid_cloud_profile(tmp_path, monkeypatch, model, read_unavailable):
+    commands = [
         'FILES {"tool":"files.list"}',
         'FILES {"tool":"files.read","id":1,"offset":0,"length":6}',
         'FILES {"tool":"files.write","name":"result.txt","offset":0,"data":"UFVCTElD"}',
         'FILES {"tool":"files.publish","name":"result.txt"}',
         'STOP',
-    ])
-    with provider(answers) as (url, seen):
+    ]
+    if read_unavailable:
+        commands.insert(1, 'FILES {"tool":"files.read","id":2,"offset":0,"length":15}')
+    with provider(iter(commands)) as (url, seen):
         monkeypatch.setitem(gateway.PROVIDERS, "fixture", {"base": url, "kind": "openai"})
         monkeypatch.setattr(cloud, "OPENAI_BASE", url)
         options = {"kind": "openai", "base": url, "model": model, "key": "fixture-key", "max_tokens": 64}
@@ -168,7 +209,12 @@ def test_builtin_agent_reaches_provider_through_paid_cloud_profile(tmp_path, mon
         run.join(20)
         assert run.finished.is_set(), run.snapshot()
         assert run.result["broken"] == [], json.dumps(run.result, ensure_ascii=False, default=str)
-        assert len(seen) == 5
+        assert len(seen) == len(commands)
+        if read_unavailable:
+            journal = Path(run.result["workdir"]) / "journal5.jsonl"
+            rows = [json.loads(line) for line in journal.read_bytes().splitlines()]
+            assert [row["code"] for row in rows if row["kind"] == "отказ ворот"] == [-6]
+            assert [row["file_id"] for row in rows if row.get("tool") == "files.read"] == [1]
         for path, request, _ in seen:
             assert path == "/v1/chat/completions"
             assert request["model"] == model
