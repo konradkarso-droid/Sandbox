@@ -34,6 +34,8 @@ jobs:
       - name: Тесты границ с локальным получателем
         run: |
           set -o pipefail
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
           .venv/bin/python3 -m pip install pytest
           .venv/bin/python3 -m pytest -q -rs tests/test_app.py tests/test_gateway.py tests/test_exchange.py \
             | tee -a "$GITHUB_STEP_SUMMARY"
