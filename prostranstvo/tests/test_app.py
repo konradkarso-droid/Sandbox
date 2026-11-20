@@ -76,6 +76,20 @@ def test_seal_check_passes_probe():
     assert sealmod.check(True) is None
 
 
+def test_model_timeout_reaps_unresponsive_child():
+    from sandbox.model9 import ModelLink
+
+    script = "import sys; sys.stdin.buffer.readline(); sys.stdin.buffer.readline()"
+    link = ModelLink([sys.executable, "-c", script], timeout=0.5)
+    try:
+        assert link.ask(b"fixture", 64) is None
+        assert link.dead
+        assert link.proc.poll() is not None
+        assert link.ask(b"second fixture", 64) is None
+    finally:
+        link.close()
+
+
 @pytest.mark.parametrize("allow_unix", [False, True])
 def test_network_seal_is_inherited_after_exec(allow_unix):
     probe = '''

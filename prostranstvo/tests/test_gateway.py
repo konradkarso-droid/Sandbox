@@ -278,3 +278,72 @@ def test_astra_acceptance_checks_private_markers(tmp_path, monkeypatch, case, ex
         for _, request, _ in seen:
             question = request["messages"][0]["content"]
             assert all(pair * 16 not in question for pair in ("f1", "a2", "b3"))
+
+
+def test_parallel_exchange_sessions_keep_inputs_and_approvals_separate(tmp_path, monkeypatch):
+    """Два экземпляра приложения ведут независимые сеансы одновременно."""
+    from app import runner, server
+    from app.exchange import ExchangeJob
+
+    rendezvous = threading.Barrier(2, timeout=15)
+    inputs = (b"first-session-fixture", b"second-session-fixture")
+    texts = tuple(base64.b64encode(data).decode() for data in inputs)
+
+    def answers(encoded):
+        rendezvous.wait()
+        yield 'FILES {"tool":"files.read","id":1,"offset":0,"length":64}'
+        yield f'FILES {{"tool":"files.write","name":"result.txt","offset":0,"data":"{encoded}"}}'
+        yield 'FILES {"tool":"files.publish","name":"result.txt"}'
+        yield "STOP"
+
+    monkeypatch.setattr(server, "EXCHANGES", tmp_path / "exchange")
+    monkeypatch.setattr(server, "RUNS", tmp_path / "runs")
+    monkeypatch.setattr(runner, "RUNS", server.RUNS)
+
+    with provider(answers(texts[0])) as (first_url, first_seen), provider(answers(texts[1])) as (second_url, second_seen):
+        sessions = []
+        for index, (url, data) in enumerate(zip((first_url, second_url), inputs)):
+            preset = f"fixture-{index}"
+            monkeypatch.setitem(gateway.PROVIDERS, preset, {"base": url, "kind": "openai"})
+            job = ExchangeJob.create(server.EXCHANGES, server.RUNS)
+            job.add_input("source.txt", data)
+            app = server.App(0)
+            payload = {
+                "contour": "разомкнутый", "exchange": job.id, "words": "Copy the source.",
+                "agent_lang": "en", "timeout": 20,
+                "cloud": {"kind": "openai", "base": url, "model": "test", "key": preset},
+                "cloud_export": {"provider": preset, "files": [{"name": "source.txt", "sha256": digest(data)}]},
+            }
+            sessions.append((app, job, payload))
+
+        try:
+            for app, _, payload in sessions:
+                app.start(payload)
+            for app, _, _ in sessions:
+                app.run.join(25)
+                assert app.run.finished.is_set(), app.run.snapshot()
+                assert app.run.result["broken"] == [], app.run.snapshot()
+        finally:
+            for app, _, _ in sessions:
+                if app.run is not None and app.run.is_alive():
+                    app.run.stop()
+                    app.run.join(10)
+
+        for index, seen in enumerate((first_seen, second_seen)):
+            assert len(seen) == 4
+            questions = "\n".join(request["messages"][0]["content"] for _, request, _ in seen)
+            assert texts[index] in questions
+            assert texts[1 - index] not in questions
+
+        first, second = (job for _, job, _ in sessions)
+        first_request, = first.info()["requests"]
+        second_request, = second.info()["requests"]
+        assert first_request["id"] == second_request["id"]
+        first.approve(first_request["id"])
+        assert first.download(first_request["id"]) == ("result.txt", inputs[0])
+        assert second.info()["requests"][0]["published"] is False
+        assert list((second.root / "outbox").iterdir()) == []
+        with pytest.raises(FileNotFoundError):
+            second.download(second_request["id"])
+        second.approve(second_request["id"])
+        assert second.download(second_request["id"]) == ("result.txt", inputs[1])
