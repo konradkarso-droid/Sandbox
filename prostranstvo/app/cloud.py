@@ -30,12 +30,14 @@ from dataclasses import dataclass, field
 
 # Готовые адреса. Имя модели человек пишет сам или берёт из списка
 # поставщика (list_models): имена моделей меняются чаще, чем этот файл.
+OPENAI_BASE = "https://api.openai.com/v1"
+OPENAI_ASTRA = "gpt-6.2-astra"
 PRESETS = [
     {"id": "openrouter", "name": "OpenRouter", "kind": "openai", "base": "https://openrouter.ai/api/v1",
      "key_env": "OPENROUTER_API_KEY"},
     {"id": "anthropic", "name": "Anthropic", "kind": "anthropic", "base": "https://api.anthropic.com/v1",
      "key_env": "ANTHROPIC_API_KEY"},
-    {"id": "openai", "name": "OpenAI", "kind": "openai", "base": "https://api.openai.com/v1",
+    {"id": "openai", "name": "OpenAI", "kind": "openai", "base": OPENAI_BASE,
      "key_env": "OPENAI_API_KEY"},
     {"id": "deepseek", "name": "DeepSeek", "kind": "openai", "base": "https://api.deepseek.com/v1",
      "key_env": "DEEPSEEK_API_KEY"},
@@ -76,6 +78,10 @@ class Cloud:
         self.base = self.base.rstrip("/")
         if self.kind not in ("openai", "anthropic"):
             raise ValueError("протокол — openai или anthropic")
+
+
+def _is_openai_astra(c: Cloud) -> bool:
+    return c.kind == "openai" and c.base == OPENAI_BASE and c.model == OPENAI_ASTRA
 
 
 def _human(code: int, body: str) -> str:
@@ -142,6 +148,9 @@ def _body(c: Cloud, question: str) -> tuple[str, dict]:
         if c._send_temperature:
             b["temperature"] = 0
         return "/messages", b
+    if _is_openai_astra(c):
+        return "/chat/completions", {"model": c.model, "messages": msg, "max_completion_tokens": c.max_tokens,
+                                     "reasoning_effort": "low"}
     b = {"model": c.model, "messages": msg, c._tokens_field: c.max_tokens}
     if c._send_temperature:
         b["temperature"] = 0
@@ -236,5 +245,5 @@ def list_models(c: Cloud, timeout: float = 20.0) -> list[str]:
 def check(c: Cloud, timeout: float = 30.0) -> tuple[str, dict]:
     """Проверка связи мимо песочницы: короткий вопрос. Возвращает ответ и
     токены; CloudError — с причиной. В журнал среды не попадает."""
-    probe = Cloud(c.kind, c.base, c.model, c.key, max_tokens=16)
+    probe = Cloud(c.kind, c.base, c.model, c.key, max_tokens=512 if _is_openai_astra(c) else 16)
     return ask(probe, "Ответь одним словом: ГОТОВ", time.monotonic() + timeout)

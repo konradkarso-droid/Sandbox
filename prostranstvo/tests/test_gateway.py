@@ -130,7 +130,8 @@ def test_unknown_receipt_keeps_charge_and_cannot_be_resent(tmp_path, monkeypatch
             bridge.close()
 
 
-def test_builtin_agent_reaches_provider_through_paid_cloud_profile(tmp_path, monkeypatch):
+@pytest.mark.parametrize("model", ["test", "gpt-6.2-astra"])
+def test_builtin_agent_reaches_provider_through_paid_cloud_profile(tmp_path, monkeypatch, model):
     answers = iter([
         'FILES {"tool":"files.list"}',
         'FILES {"tool":"files.read","id":1,"offset":0,"length":6}',
@@ -140,7 +141,8 @@ def test_builtin_agent_reaches_provider_through_paid_cloud_profile(tmp_path, mon
     ])
     with provider(answers) as (url, seen):
         monkeypatch.setitem(gateway.PROVIDERS, "fixture", {"base": url, "kind": "openai"})
-        options = {"kind": "openai", "base": url, "model": "test", "key": "fixture-key", "max_tokens": 64}
+        monkeypatch.setattr(cloud, "OPENAI_BASE", url)
+        options = {"kind": "openai", "base": url, "model": model, "key": "fixture-key", "max_tokens": 64}
         from app import runner, server
         from app.runner import Refusal
         from app.exchange import ExchangeJob
@@ -167,6 +169,15 @@ def test_builtin_agent_reaches_provider_through_paid_cloud_profile(tmp_path, mon
         assert run.finished.is_set(), run.snapshot()
         assert run.result["broken"] == [], json.dumps(run.result, ensure_ascii=False, default=str)
         assert len(seen) == 5
+        for path, request, _ in seen:
+            assert path == "/v1/chat/completions"
+            assert request["model"] == model
+            if model == "gpt-6.2-astra":
+                assert request["max_completion_tokens"] == 64
+                assert request["reasoning_effort"] == "low"
+                assert not {"temperature", "max_tokens", "tools"} & request.keys()
+            else:
+                assert request["max_tokens"] == 64 and request["temperature"] == 0
         questions = "\n".join(request["messages"][0]["content"] for _, request, _ in seen)
         assert "sample.txt" in questions and "UFVCTElD" in questions
         assert "local-only.txt" not in questions and "PRIVATE-FIXTURE" not in questions
