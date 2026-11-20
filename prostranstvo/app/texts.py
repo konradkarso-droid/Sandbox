@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from experiments.pilot9 import SCENARIOS as PILOT_WORDS
+from sandbox.agent_protocol import SCENARIOS as PILOT_WORDS
 
 SCENARIOS = [
     {"id": "work",
@@ -82,7 +82,7 @@ GROUPS = [
     {"id": "words", "keys": ("И24р", "И23р", "И26", "И26н"),
      "ru": ("Слова не дают прав", "Права агента не выросли ни от слов человека, ни от слов модели."),
      "en": ("Words grant no rights", "The agent's rights grew neither from the person's words nor from the model's.")},
-    {"id": "paid", "keys": ("И1р", "И5р", "И5", "И7р", "И16р", "И31р", "И32р", "И33р", "И34р", "И15р"),
+    {"id": "paid", "keys": ("И1р", "И5р", "И5", "И7р", "И16р", "И31р", "И32р", "И33р", "И34р", "И35р", "И36р", "И15р"),
      "ru": ("Каждый шаг оплачен и записан", "Даже отказанная попытка стоит бюджета; журнал не подделан."),
      "en": ("Every step is paid for and logged", "Even a refused attempt costs budget; the log is not tampered with.")},
     {"id": "rules", "keys": ("И2р", "И3р", "И4р", "И6р", "И10р", "И11р", "И12р", "И13р", "И14р", "И28", "И29", "И30"),
@@ -119,8 +119,8 @@ LAWS = {
     "И26н": ("Начальные права — те же, что в модели.", "The initial rights are the same as in the model."),
     "И1р": ("Расход по журналу плюс остаток равны начальному бюджету; в минус не ушли.",
             "Spending in the log plus the remainder equals the initial budget; it never went negative."),
-    "И5р": ("Журнал не подделан (цепочка хешей цела), расход по нему сходится.",
-            "The log is not tampered with (the hash chain is intact), and spending matches it."),
+    "И5р": ("Цепочка хешей и порядок фиксаций в журнале целы, расход сходится.",
+            "The hash chain and order of fixation records are valid, and spending matches the journal."),
     "И5": ("Цепочка хешей журнала цела.", "The log's hash chain is intact."),
     "И7р": ("Журнал только дописывается.", "The log only grows."),
     "И16р": ("Потраченное не возвращается.", "Spent budget never comes back."),
@@ -148,6 +148,10 @@ LAWS = {
     "И29": ("Каждое событие с узлами допускает модель вычислений.",
             "Every node event is allowed by the computation model."),
     "И30": ("Сообщения и отказы — как в модели.", "Messages and refusals match the model."),
+    "И35р": ("Файловые вызовы оплачены, снимок и черновики совпадают с квитанциями.",
+             "File calls are charged, and the input snapshot and drafts match their receipts."),
+    "И36р": ("Сетевые попытки имеют отдельные списания и квитанции своего контура.",
+             "Network attempts match separate charges and receipts for the same contour."),
     "П2р": ("Каждый принятый ответ верен.", "Every accepted answer is correct."),
     "П2о": ("Ни одна часть задачи не принята дважды.", "No part of a task was accepted twice."),
     "П2п": ("Первая проверка ответа — за счёт среды, повторная после неверного — за счёт агента.",

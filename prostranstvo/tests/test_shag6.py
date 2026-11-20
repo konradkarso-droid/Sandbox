@@ -14,6 +14,7 @@ import wasmtime as w
 
 from experiments.agents6.build import build
 from run_shag6 import AGENTS, BASE6, MAIN6, broken as broken_row, e_moves, run6, summary_row
+from verification import answer_observer
 from verification.observer6 import presence_bits, spy_bits
 from sandbox.process5 import LocalDriver
 
@@ -37,7 +38,7 @@ def test_agents_import_only_the_gate():
 
 
 def test_observer_does_not_import_environment_checker():
-    src = (HERE / "verification" / "observer6.py").read_text(encoding="utf-8")
+    src = (HERE / "verification" / "answer_observer.py").read_text(encoding="utf-8")
     assert "tasks6" not in src.split('"""', 2)[2] and "executor6" not in src.split('"""', 2)[2]
 
 
@@ -135,3 +136,51 @@ def test_main_world_window(tmp_path):
         r, row = run(tmp_path / name, name, AGENTS[name], {k: v for k, v in MAIN6.items()}, expect_all=True)
         assert broken_row(row) == [], row["laws"]
         assert row["accepted"] == [5, 5] and row["e"] == 0
+
+
+@pytest.mark.parametrize("case", ["debit_twice", "finish_first", "different_part", "refusal_without_check"])
+def test_fixation_order_rejected_on_recovery_and_by_observer(tmp_path, case):
+    from dataclasses import asdict
+
+    from env.journal import Journal, JournalBroken
+    from sandbox.answer_executor import Config6, Sandbox6
+    from verification.observer5 import BROKEN, read_journal
+
+    cfg = Config6()
+    sandbox = Sandbox6(tmp_path, cfg=cfg)
+    check = {"kind": "проверка", "contour": 1, "fix": "1-0", "subject": "а1",
+             "payer": "среда", "price": 1, "task": 1, "part": 0}
+    debit = {**check, "kind": "списание", "receiver": "выход", "msg": "задача 1.0: 00"}
+    finish = {"kind": "завершено", "contour": 1, "fix": "1-0"}
+    histories = {
+        "debit_twice": [check, debit, debit],
+        "finish_first": [check, finish, debit],
+        "different_part": [check, {**debit, "part": 1}],
+        "refusal_without_check": [{**check, "kind": "отказ", "charge": 1, "why": "ответ неверен", "msg": "", "receiver": "выход"}],
+    }
+    for record in histories[case]:
+        sandbox.journal.append(record)
+
+    assert read_journal(sandbox.journal.path)[1] is None
+    assert Journal.open(sandbox.journal.path)[0].records == sandbox.journal.records
+    with pytest.raises(JournalBroken):
+        Sandbox6.recover(tmp_path)
+    observed = answer_observer.check({"workdir": str(tmp_path), "cfg": asdict(cfg)})
+    assert observed["И5р"][0] == BROKEN
+
+
+@pytest.mark.parametrize("records", [
+    ("проверка",),
+    ("проверка", "списание"),
+    ("проверка", "списание", "потеряно"),
+    ("проверка", "списание", "завершено"),
+    ("проверка", "отказ"),
+])
+def test_fixation_log_accepts_valid_records_and_crash_prefixes(records):
+    from env.fixation_log import validate_fixations
+
+    meta = {"contour": 1, "fix": "1-0"}
+    task = {"task": 1, "part": 0, "subject": "а1"}
+    fields = {"проверка": task, "списание": {**task, "receiver": "выход"},
+              "отказ": {**task, "why": "ответ неверен"}, "потеряно": {}, "завершено": {}}
+    validate_fixations({**meta, "kind": kind, **fields[kind]} for kind in records)

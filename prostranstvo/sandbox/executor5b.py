@@ -42,7 +42,9 @@ from pathlib import Path
 
 import wasmtime as w
 
+from env.fixation_log import validate_fixations
 from env.journal import Journal
+from sandbox.gateway_link import GatewayLink
 from env.receiver import Receiver
 from sandbox.executor5 import (ERR_BOUNDS, ERR_FULL, ERR_NO_CAP, ERR_PRICE, OP_INVOKE, OP_WRITE, HelperAbort, HostTrap,
                                Limits, Obj, Sandbox, _Contour, _put)
@@ -240,6 +242,7 @@ class Sandbox5b(Sandbox):
         """Поднять исполнитель по файлам. Разрыв цепочки журнала —
         JournalBroken: исполнитель не запускается."""
         journal, _ = Journal.open(workdir / "journal5.jsonl")
+        validate_fixations(journal.records)
         rec = next(r for r in journal.records if r.get("kind") == "учёт")
         cfg = cls.config_class(**{f.name: rec.get(f.name, f.default) for f in fields(cls.config_class)})
         sb = cls(workdir, defects, limits, cfg, fault, journal=journal)
@@ -263,7 +266,7 @@ class Sandbox5b(Sandbox):
                     if "Р5р" in d and r["fix"] not in closed:
                         continue
                     spent += r["price"]
-                elif r["kind"] in ("отказ", "отказ ворот"):
+                elif r["kind"] in ("отказ", "отказ ворот", "инструмент"):
                     spent += r["charge"]
                 elif r["kind"] == "выброс":
                     spent += r.get("price", 0)
@@ -571,10 +574,16 @@ class _Contour5b(_Contour):
         subj = self.subject[key]
         question = bytes(mem.read(caller, a, a + b))
         sent = set(self.labels)
-        sb.log(subj, "вопрос модели", name, [("сведения", name, x) for x in sorted(sent)], fee,
-               {"question": _as_text(question), "length": b})
+        meta = {"question": _as_text(question), "length": b}
+        prepaid_link = isinstance(link, GatewayLink)
+        if prepaid_link:
+            meta["question_sha256"] = hashlib.sha256(question).hexdigest()
+        sb.log(subj, "вопрос модели", name, [("сведения", name, x) for x in sorted(sent)], fee, meta)
         sb.objects[name].labels |= sent
-        answer = link.ask(question, cfg.model_answer)
+        if prepaid_link:
+            answer = link.ask_paid(question, cfg.model_answer, sb.journal.records[-1])
+        else:
+            answer = link.ask(question, cfg.model_answer)
         if answer is None:
             # Вопрос ушёл, ответа нет: отказ со своей записью, второй платы нет.
             sb.log(subj, "ответ модели", name, [], 0, {"answer": None, "code": ERR_SILENT})

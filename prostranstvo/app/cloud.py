@@ -30,12 +30,14 @@ from dataclasses import dataclass, field
 
 # Готовые адреса. Имя модели человек пишет сам или берёт из списка
 # поставщика (list_models): имена моделей меняются чаще, чем этот файл.
+OPENAI_BASE = "https://api.openai.com/v1"
+OPENAI_ASTRA = "gpt-6.2-astra"
 PRESETS = [
     {"id": "openrouter", "name": "OpenRouter", "kind": "openai", "base": "https://openrouter.ai/api/v1",
      "key_env": "OPENROUTER_API_KEY"},
     {"id": "anthropic", "name": "Anthropic", "kind": "anthropic", "base": "https://api.anthropic.com/v1",
      "key_env": "ANTHROPIC_API_KEY"},
-    {"id": "openai", "name": "OpenAI", "kind": "openai", "base": "https://api.openai.com/v1",
+    {"id": "openai", "name": "OpenAI", "kind": "openai", "base": OPENAI_BASE,
      "key_env": "OPENAI_API_KEY"},
     {"id": "deepseek", "name": "DeepSeek", "kind": "openai", "base": "https://api.deepseek.com/v1",
      "key_env": "DEEPSEEK_API_KEY"},
@@ -78,6 +80,10 @@ class Cloud:
             raise ValueError("протокол — openai или anthropic")
 
 
+def _is_openai_astra(c: Cloud) -> bool:
+    return c.kind == "openai" and c.base == OPENAI_BASE and c.model == OPENAI_ASTRA
+
+
 def _human(code: int, body: str) -> str:
     """Причина для человека — сразу на двух языках экрана."""
     what = {400: "запрос не принят / request rejected", 401: "ключ не принят / key not accepted",
@@ -93,7 +99,16 @@ def _human(code: int, body: str) -> str:
     return f"{what} ({code}){': ' + short if short else ''}"
 
 
-def _request(c: Cloud, method: str, path: str, body: dict | None, timeout: float) -> dict:
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+class CloudOutcomeUnknown(CloudError):
+    """Соединение закончилось до надёжного ответа на уже начатую отправку."""
+
+
+def _request(c: Cloud, method: str, path: str, body: dict | None, timeout: float, *, one_shot: bool = False) -> dict:
     headers = {"content-type": "application/json", "user-agent": "prostranstvo-sandbox"}
     if c.kind == "anthropic":
         headers["anthropic-version"] = ANTHROPIC_VERSION
@@ -106,9 +121,24 @@ def _request(c: Cloud, method: str, path: str, body: dict | None, timeout: float
     # Своя машина (Ollama, LM Studio) — мимо прокси из окружения: прокси
     # 127.0.0.1 пользователя не знает.
     local = c.base.startswith(("http://127.0.0.1", "http://localhost"))
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if local else urllib.request.build_opener()
-    with opener.open(req, timeout=max(1.0, timeout)) as r:
-        return json.loads(r.read().decode("utf-8", "replace"))
+    handlers = [urllib.request.ProxyHandler({})] if local else []
+    if one_shot:
+        handlers.append(_NoRedirect())
+    opener = urllib.request.build_opener(*handlers)
+    deadline = time.monotonic() + timeout
+    with opener.open(req, timeout=max(0.1 if one_shot else 1.0, timeout)) as r:
+        if not one_shot:
+            return json.loads(r.read().decode("utf-8", "replace"))
+        cap = 1024 * 1024
+        raw = bytearray()
+        while len(raw) <= cap:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("срок получения ответа истёк")
+            chunk = r.read1(min(16384, cap - len(raw) + 1))
+            if not chunk:
+                return json.loads(raw.decode("utf-8", "replace"))
+            raw.extend(chunk)
+        raise ValueError("ответ поставщика больше 1 МиБ")
 
 
 def _body(c: Cloud, question: str) -> tuple[str, dict]:
@@ -118,6 +148,9 @@ def _body(c: Cloud, question: str) -> tuple[str, dict]:
         if c._send_temperature:
             b["temperature"] = 0
         return "/messages", b
+    if _is_openai_astra(c):
+        return "/chat/completions", {"model": c.model, "messages": msg, "max_completion_tokens": c.max_tokens,
+                                     "reasoning_effort": "low"}
     b = {"model": c.model, "messages": msg, c._tokens_field: c.max_tokens}
     if c._send_temperature:
         b["temperature"] = 0
@@ -179,6 +212,23 @@ def ask(c: Cloud, question: str, deadline: float) -> tuple[str, dict]:
         pause = min(pause * 2, 8.0)
 
 
+def ask_once(c: Cloud, question: str, timeout: float) -> tuple[str, dict]:
+    """Одна HTTP-попытка для одного списания, с ограниченным ответом."""
+    path, body = _body(c, question)
+    try:
+        answer, usage = _text(c, _request(c, "POST", path, body, timeout, one_shot=True))
+        if not isinstance(answer, str) or not isinstance(usage, dict):
+            raise ValueError("ожидался текст ответа модели")
+        return answer, usage
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        raise CloudError(_human(exc.code, "")) from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise CloudOutcomeUnknown("ответ о приёме запроса не получен") from exc
+    except (ValueError, KeyError, IndexError, AttributeError, TypeError) as exc:
+        raise CloudError("непонятный или слишком большой ответ поставщика") from exc
+
+
 def list_models(c: Cloud, timeout: float = 20.0) -> list[str]:
     """Имена моделей у поставщика (GET /models). CloudError — не вышло."""
     try:
@@ -195,5 +245,5 @@ def list_models(c: Cloud, timeout: float = 20.0) -> list[str]:
 def check(c: Cloud, timeout: float = 30.0) -> tuple[str, dict]:
     """Проверка связи мимо песочницы: короткий вопрос. Возвращает ответ и
     токены; CloudError — с причиной. В журнал среды не попадает."""
-    probe = Cloud(c.kind, c.base, c.model, c.key, max_tokens=16)
+    probe = Cloud(c.kind, c.base, c.model, c.key, max_tokens=512 if _is_openai_astra(c) else 16)
     return ask(probe, "Ответь одним словом: ГОТОВ", time.monotonic() + timeout)

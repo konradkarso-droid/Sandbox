@@ -25,7 +25,7 @@ How a run goes:
    is gone, a separate program — the **observer** — checks the log against
    the environment's laws.
 
-The model is yours: any GGUF file or any cloud model.
+Use a GGUF file from a trusted source or a cloud model.
 
 # Requirements
 
@@ -34,6 +34,8 @@ The model is yours: any GGUF file or any cloud model.
   is not supported.
 - Python 3.11 or newer and git. On Debian and Ubuntu also `python3-venv`:
   `sudo apt install git python3-venv`.
+- For local GGUF, install Bubblewrap (for example, `sudo apt install bubblewrap`)
+  and allow user namespaces for it.
 - About 300 MB of disk, plus the models themselves.
 
 # Start
@@ -61,9 +63,8 @@ at the top right.
 
 ## 1. Model
 
-**Local** — a GGUF file on this computer. The model runs inside the
-sandbox, and the system takes its network away: the agent's questions go
-nowhere.
+**Local** — a GGUF file from a trusted source. Bubblewrap isolates the
+loader's network, filesystem and processes.
 
 - Model files need an engine — once: `python3 start.py --local` (about 10
   minutes to build; needs cmake and a C++ compiler:
@@ -188,7 +189,7 @@ the results (`itog.json`).
 | What you see | What to do |
 |---|---|
 | “Could not create the environment” | `sudo apt install python3-venv` |
-| “a local model is not available here” | the system cannot take the network away from a process (old kernel or not Linux); cloud works |
+| “a local model is not available here” | Bubblewrap is unavailable or cannot set up namespaces. The screen shows the reason. |
 | “install the engine first” | `python3 start.py --local` |
 | cloud: “key not accepted (401)” | check the key |
 | cloud: “no money on the account (402)” | top up or use a free model |
