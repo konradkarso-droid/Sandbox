@@ -6,7 +6,7 @@ from dataclasses import asdict
 
 import pytest
 
-from env.exchange import pack_json, snapshot_inbox
+from env.exchange import ExchangeStore, MAX_FILE_BYTES, MAX_STORAGE_BYTES, digest, pack_json, snapshot_inbox
 from sandbox.exchange_executor import ExchangeConfig
 from sandbox.process5 import Driver, LocalDriver
 from sandbox.run_session import run_contours
@@ -16,7 +16,7 @@ from verification.observer5 import BROKEN, read_journal
 IDLE = "(module (func (export \"main\")))"
 
 
-def agent(*calls):
+def agent(*calls, after_calls=""):
     module = ['(module (import "env" "call" (func $call (param i32 i32 i32 i32) (result i32)))',
               '(memory (export "memory") 2 2)']
     main = []
@@ -29,7 +29,7 @@ def agent(*calls):
         main.extend((f"(call $call (i32.const {cap}) (i32.const 9) (i32.const {address}) (i32.const {len(frame)}))",
                      f"(i32.const {want})", "(i32.ne)" if want < 0 else "(i32.lt_s)",
                      "(if (then unreachable))"))
-    module.extend(('(func (export "main")', *main, "))"))
+    module.extend(('(func (export "main")', *main, after_calls, "))"))
     return "\n".join(module)
 
 
@@ -75,6 +75,63 @@ def test_bad_calls_pay_until_stop(tmp_path):
     assert sum(r["kind"] == "останов" for r in records) == 1
     assert run["runs"][0][1] == ("ловушка", "бюджет исчерпан")
     assert {k: v for k, v in run["laws"].items() if v[0] == BROKEN} == {}
+
+
+def test_exchange_wasm_cannot_grow_beyond_two_pages(tmp_path):
+    source = """
+    (module
+      (memory (export "memory") 1)
+      (func (export "main")
+        (if (i32.ne (memory.grow (i32.const 1)) (i32.const 1)) (then unreachable))
+        (if (i32.ne (memory.grow (i32.const 1)) (i32.const -1)) (then unreachable))
+        (if (i32.ne (memory.size) (i32.const 2)) (then unreachable))))
+    """
+    run = exercise(tmp_path, source, driver_cls=Driver)
+    assert run["runs"][0] == (1, ("завершён", ""))
+    assert run["laws"]["И27"][0] != BROKEN
+
+
+def test_exchange_fuel_stop_leaves_draft_unpublished(tmp_path):
+    from app import runner
+    from app.exchange import ExchangeJob
+
+    job = ExchangeJob.create(tmp_path / "exchange", tmp_path / "runs")
+    write = {"tool": "files.write", "name": "result.txt", "offset": 0, "data": "ZHJhZnQ="}
+    source = agent((write, 1, 8), after_calls="(loop $spin (br $spin))")
+    settings = runner.Settings(contour="сомкнутый", exchange=job.id, agent="test.wat", words="Сохрани черновик")
+    run = runner.Run(settings, source, job.run.parent, files={})
+    run.start()
+    try:
+        run.join(15)
+        assert run.finished.is_set(), run.snapshot()
+        assert run.result["contours"][1]["outcome"] == [("ловушка", "топливо кончилось")]
+        assert run.result["broken"] == []
+        assert run.driver is not None and not run.driver.proc.is_alive()
+        store = ExchangeStore(job.workdir / "exchange-state", create=False)
+        assert store.read_blob(digest(b"draft")) == b"draft"
+        assert job.info()["requests"] == []
+        assert list((job.root / "outbox").iterdir()) == []
+    finally:
+        if run.is_alive():
+            run.stop()
+            run.join(10)
+
+
+def test_exchange_storage_refuses_new_bytes_at_quota(tmp_path):
+    store = ExchangeStore(tmp_path / "exchange")
+    for index in range(MAX_STORAGE_BYTES // MAX_FILE_BYTES):
+        data = bytes([index]) * MAX_FILE_BYTES
+        store.put_blob(digest(data), data)
+    assert store.used == MAX_STORAGE_BYTES
+
+    reopened = ExchangeStore(store.path, create=False)
+    reopened.put_blob(digest(data), data)
+    assert reopened.used == MAX_STORAGE_BYTES
+    new = b"one more version"
+    with pytest.raises(ValueError, match="квота"):
+        reopened.put_blob(digest(new), new)
+    assert not (reopened.blobs / digest(new)).exists()
+    assert reopened.read_blob(digest(data)) == data
 
 
 @pytest.mark.parametrize("stage", ["после списания", "после доставки"])
