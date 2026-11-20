@@ -2,9 +2,9 @@
 
 **AI agent sandbox** for LLM agents: every action is checked and paid for
 from a finite budget, and there is no way out — by design, not by a ban in
-words. Bring any local model (GGUF, llama.cpp) or any cloud LLM (OpenAI,
+words. Bring a GGUF model from a trusted source or a cloud LLM (OpenAI,
 Anthropic, OpenRouter …), watch every move explained in plain language,
-and see which laws held. **Песочница для ИИ-агентов**: любая локальная или
+and see which laws held. **Песочница для ИИ-агентов**: локальная модель из доверенного источника или
 облачная модель, каждый ход объяснён, в конце — проверка законов.
 
 [English](#english) · [Русский](#русский)
@@ -16,8 +16,8 @@ agent takes is checked and paid for from a finite budget; there is no
 way out — by construction, not by a ban in words. Everything goes into a
 log, and independent observers check the environment's laws against it.
 
-You bring the model: **any local model** (a GGUF file; it runs inside the
-sandbox with its network taken away by the system) or **any cloud model**
+You bring the model: **a GGUF file from a trusted source** (the loader runs in Bubblewrap)
+or **a cloud model**
 (OpenRouter, Anthropic, OpenAI, DeepSeek, Groq, Mistral, Gemini, or a
 local service such as Ollama or LM Studio). You choose what to test —
 ordinary work, an escape attempt, "permission" given in words, a leak to
@@ -39,19 +39,22 @@ the top right). Step-by-step guide: [how to use it](prostranstvo/docs/sandbox_gu
 
 `python3 start.py --check` checks the installation without a model and
 without the screen. `python3 start.py --local` also installs the engine for
-local GGUF models (about 10 minutes to build).
+local GGUF models (about 10 minutes to build). For local models, install
+Bubblewrap and enable unprivileged user namespaces for it.
 
 The agent can be the built-in one (its rules for the model in English or
 Russian) or **your own WebAssembly program**: [how to write your own agent](prostranstvo/docs/own_agent_en.md).
+Sessions can use [file exchange and paid file tools](prostranstvo/docs/workspace_exchange.md) (Russian).
+Cloud file sessions require consent for the selected file versions and provider.
 
 ### What has been tested — and what has not
 
 This is a **research prototype**, the author's first public project.
 
 Tested:
-- adversarial programs written in advance and enumerations of attempts
-  (more than a thousand), plus deliberately broken versions of the
-  environment — the observers catch the breakage;
+- adversarial programs and deliberately broken versions of the environment.
+  The reports document [9,647 attempts per rule](prostranstvo/docs/shag8v_otchet.md)
+  and [1,136 model-call attempts](prostranstvo/docs/shag9b_otchet.md);
 - two independent implementations of the executor (Python and Rust),
   compared byte for byte;
 - live small local models (0.5–7 B parameters, including uncensored ones)
@@ -98,6 +101,9 @@ Authors: the project owner [konradkarso-droid](https://github.com/konradkarso-dr
 Claude Opus 5.5 and Claude Fable 5.2 (Anthropic) — co-authors of the
 theory, code and reports.
 
+Contributor: Codex (GPT-6.2 Sol, OpenAI) reviewed and updated desktop Linux
+GGUF isolation, journal validation, and experiment documentation.
+
 ---
 
 ## Русский
@@ -119,8 +125,8 @@ python3 start.py
 ```
 
 Откроется экран в браузере (русский и английский — переключатель вверху
-справа). Модель — любая: **локальная** (файл GGUF; работает внутри
-песочницы, сеть у неё отнята системой) или **облачная** (OpenRouter,
+справа). Для **локальной** модели выбери GGUF из доверенного источника.
+Его загрузчик работает в Bubblewrap. Можно выбрать и **облачную** модель (OpenRouter,
 Anthropic, OpenAI, DeepSeek, Groq, Mistral, Gemini, сервисы на этом
 компьютере — Ollama, LM Studio). Выбираешь, что проверить, — смотришь
 ходы агента с объяснением каждого — в конце итог: какие законы
@@ -131,15 +137,17 @@ Anthropic, OpenAI, DeepSeek, Groq, Mistral, Gemini, сервисы на этом
 
 Агент — встроенный (правила для модели по-русски или по-английски) или
 **своя программа WebAssembly**: [как написать своего агента](prostranstvo/docs/svoy_agent.md).
+Доступны [папка обмена и платные файловые инструменты](prostranstvo/docs/workspace_exchange.md).
+Для облачного обмена требуется согласие на передачу выбранных версий файлов выбранному провайдеру.
 
 ### Что проверено и чего нет
 
 Это **исследовательский образец**, первый публичный проект автора.
 
 Проверено:
-- заранее написанные программы-«взломщики» и перебор попыток (больше
-  тысячи), плюс нарочно испорченные версии среды — наблюдатели порчу
-  ловят;
+- заранее написанные программы и нарочно испорченные версии среды.
+  В отчётах описаны [9 647 попыток на каждое правило](prostranstvo/docs/shag8v_otchet.md)
+  и [1 136 попыток хода модели](prostranstvo/docs/shag9b_otchet.md);
 - две независимые реализации исполнителя (Python и Rust), сверенные байт
   в байт;
 - живые небольшие локальные модели (0,5–7 млрд параметров, в том числе без
@@ -163,6 +171,13 @@ Anthropic, OpenAI, DeepSeek, Groq, Mistral, Gemini, сервисы на этом
 
 ### Что здесь
 
+Рабочий интерфейс запускается через `prostranstvo/start.py`.
+`sandbox/run_session.py` ведёт прогоны, `sandbox/answer_executor.py`
+принимает ответы, `verification/answer_observer.py` их проверяет,
+`core/model_world.py` описывает мир с ходом модели.
+[Команды для воспроизведения опытов](prostranstvo/README.md#как-запустить)
+сохраняют номера шагов из отчётов.
+
 | Папка | Что |
 |---|---|
 | `prostranstvo/start.py`, `prostranstvo/app` | экран песочницы: запуск, печать сети, связь с облаком |
@@ -184,7 +199,7 @@ Anthropic, OpenAI, DeepSeek, Groq, Mistral, Gemini, сервисы на этом
 
 ```
 cd prostranstvo
-pip install wasmtime numpy pytest pyyaml
+pip install wasmtime==50.0.1 numpy pytest pyyaml
 # нагрузки .wasm собираются из исходников (в репозитории их нет)
 PYTHONPATH=. python3 phone8/workloads8.py
 PYTHONPATH=. python3 phone9/assets9.py
@@ -205,7 +220,9 @@ python3 -m pytest -q
 
 - владелец проекта — [konradkarso-droid](https://github.com/konradkarso-droid);
 - Claude Opus 5.5 и Claude Fable 5.2 (Anthropic) — соавторы теории, кода и
-  отчётов.
+  отчётов;
+- Codex (GPT-6.2 Sol, OpenAI) — ревью и правки изоляции GGUF на настольном
+  Linux, проверки журнала и документации экспериментов.
 
 ### Лицензия
 

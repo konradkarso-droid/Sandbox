@@ -93,7 +93,16 @@ def _human(code: int, body: str) -> str:
     return f"{what} ({code}){': ' + short if short else ''}"
 
 
-def _request(c: Cloud, method: str, path: str, body: dict | None, timeout: float) -> dict:
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+class CloudOutcomeUnknown(CloudError):
+    """Соединение закончилось до надёжного ответа на уже начатую отправку."""
+
+
+def _request(c: Cloud, method: str, path: str, body: dict | None, timeout: float, *, one_shot: bool = False) -> dict:
     headers = {"content-type": "application/json", "user-agent": "prostranstvo-sandbox"}
     if c.kind == "anthropic":
         headers["anthropic-version"] = ANTHROPIC_VERSION
@@ -106,9 +115,24 @@ def _request(c: Cloud, method: str, path: str, body: dict | None, timeout: float
     # Своя машина (Ollama, LM Studio) — мимо прокси из окружения: прокси
     # 127.0.0.1 пользователя не знает.
     local = c.base.startswith(("http://127.0.0.1", "http://localhost"))
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if local else urllib.request.build_opener()
-    with opener.open(req, timeout=max(1.0, timeout)) as r:
-        return json.loads(r.read().decode("utf-8", "replace"))
+    handlers = [urllib.request.ProxyHandler({})] if local else []
+    if one_shot:
+        handlers.append(_NoRedirect())
+    opener = urllib.request.build_opener(*handlers)
+    deadline = time.monotonic() + timeout
+    with opener.open(req, timeout=max(0.1 if one_shot else 1.0, timeout)) as r:
+        if not one_shot:
+            return json.loads(r.read().decode("utf-8", "replace"))
+        cap = 1024 * 1024
+        raw = bytearray()
+        while len(raw) <= cap:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("срок получения ответа истёк")
+            chunk = r.read1(min(16384, cap - len(raw) + 1))
+            if not chunk:
+                return json.loads(raw.decode("utf-8", "replace"))
+            raw.extend(chunk)
+        raise ValueError("ответ поставщика больше 1 МиБ")
 
 
 def _body(c: Cloud, question: str) -> tuple[str, dict]:
@@ -177,6 +201,23 @@ def ask(c: Cloud, question: str, deadline: float) -> tuple[str, dict]:
             raise CloudError(f"непонятный ответ поставщика / unreadable provider answer: {e}")
         time.sleep(min(pause, max(0.0, deadline - time.monotonic() - 0.5)))
         pause = min(pause * 2, 8.0)
+
+
+def ask_once(c: Cloud, question: str, timeout: float) -> tuple[str, dict]:
+    """Одна HTTP-попытка для одного списания, с ограниченным ответом."""
+    path, body = _body(c, question)
+    try:
+        answer, usage = _text(c, _request(c, "POST", path, body, timeout, one_shot=True))
+        if not isinstance(answer, str) or not isinstance(usage, dict):
+            raise ValueError("ожидался текст ответа модели")
+        return answer, usage
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        raise CloudError(_human(exc.code, "")) from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise CloudOutcomeUnknown("ответ о приёме запроса не получен") from exc
+    except (ValueError, KeyError, IndexError, AttributeError, TypeError) as exc:
+        raise CloudError("непонятный или слишком большой ответ поставщика") from exc
 
 
 def list_models(c: Cloud, timeout: float = 20.0) -> list[str]:

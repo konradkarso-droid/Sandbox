@@ -96,10 +96,12 @@ def _handle_factory(kind: str = "5"):
     сбоя в new) или «6» (то же плюс задачи и проверка ответа)."""
     from sandbox.executor5 import Sandbox
     from sandbox.executor5b import FAULT_POINTS, Sandbox5b, config_error
-    from sandbox.executor6 import Sandbox6
+    from sandbox.answer_executor import Sandbox6
+    from sandbox.exchange_executor import ExchangeSandbox, exchange_config_error
+    from sandbox.gateway_link import GatewayLink
     from env.journal import JournalBroken
     state: dict = {}
-    accounting = {"5б": Sandbox5b, "6": Sandbox6}.get(kind)
+    accounting = {"5б": Sandbox5b, "6": Sandbox6, "exchange": ExchangeSandbox}.get(kind)
     cfg_keys = set(accounting.config_class.__dataclass_fields__) if accounting else set()
 
     def fault_of(x):
@@ -112,6 +114,15 @@ def _handle_factory(kind: str = "5"):
 
     def workdir(n: int) -> Path:
         return Path(state["root"]) / f"run{n:05d}"
+
+    def require_gateway(config, links, *, recovering=False):
+        if accounting is ExchangeSandbox and config.model == 1:
+            if recovering and not links:
+                return
+            if (not links or set(links) != {1, 2} or
+                    any(not isinstance(link, GatewayLink) or link.manifest != config.cloud_manifest
+                        for link in links.values())):
+                raise _Refused("облачный обмен требует привязанные каналы шлюза")
 
     def handle(msg):
         if not (isinstance(msg, tuple) and msg and msg[0] in COMMANDS):
@@ -126,6 +137,8 @@ def _handle_factory(kind: str = "5"):
                     raise _Refused("настройки учёта — словарь известных полей")
                 conf = accounting.config_class(**(cfg or {}))
                 err = config_error(conf)
+                if accounting is ExchangeSandbox:
+                    err = err or exchange_config_error(conf)
                 if err:
                     raise _Refused(err)
                 links = state.get("model_links")
@@ -133,9 +146,16 @@ def _handle_factory(kind: str = "5"):
                     raise _Refused("режим модели включён, а модель при запуске исполнителя не подключена")
                 if conf.model == 2 and not all(link.isolated for link in links.values()):
                     raise _Refused("model = 2, а процесс модели запущен не без сети")
-                state["sb"] = accounting(workdir(state["n"]), frozenset(state["defects"]), state["limits"], conf,
-                                         fault_of(args[1] if len(args) > 1 else None))
-                state["sb"].model_links = state.get("model_links")
+                require_gateway(conf, links)
+                sb = accounting(workdir(state["n"]), frozenset(state["defects"]), state["limits"], conf,
+                                fault_of(args[1] if len(args) > 1 else None))
+                if accounting is ExchangeSandbox:
+                    try:
+                        sb.import_inputs(args[2] if len(args) > 2 else None)
+                    except (OSError, ValueError) as e:
+                        raise _Refused(str(e)) from e
+                sb.model_links = links
+                state["sb"] = sb
             else:
                 state["sb"] = Sandbox(workdir(state["n"]), frozenset(state["defects"]), state["limits"])
             return str(state["sb"].workdir)
@@ -161,6 +181,11 @@ def _handle_factory(kind: str = "5"):
             if state["sb"].cfg.model == 2 and links and not all(link.isolated for link in links.values()):
                 state["sb"] = None
                 raise _Refused("model = 2, а процесс модели запущен не без сети")
+            try:
+                require_gateway(state["sb"].cfg, links, recovering=True)
+            except _Refused:
+                state["sb"] = None
+                raise
             state["sb"].model_links = links
             return str(state["sb"].workdir)
         sb = state.get("sb")
@@ -190,7 +215,7 @@ def _handle_factory(kind: str = "5"):
 
 
 def _main(conn, root: str, defects: list[str], limits: dict | None, kind: str = "5",
-          model: dict | None = None) -> None:
+          model: dict | None = None, *, model_links=None) -> None:
     import wasmtime  # noqa: F401  — библиотека грузится до включения аудита
     from sandbox.executor5 import Limits
     from sandbox.executor5b import Crash
@@ -201,7 +226,7 @@ def _main(conn, root: str, defects: list[str], limits: dict | None, kind: str = 
     # Процессы модели (шаг 9) — до включения аудита: потом исполнителю
     # запускать процессы незачем, и прибор считает любой запуск событием.
     state.update(root=root, defects=list(defects), limits=Limits(**limits) if limits else Limits(),
-                 model_links=start_links(model))
+                 model_links=start_links(model) if model_links is None else model_links)
     state["audit"] = _Audit(rootp)
     state["audit"].on = True
     while True:

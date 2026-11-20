@@ -4,6 +4,10 @@ Prostranstvo — a sandbox for the "Environment Theory" research programme
 Copyright 2026 konradkarso-droid (владелец проекта / project owner)
 и соавторы / and co-authors: Claude Opus 5.5, Claude Fable 5.2 (Anthropic)
 
+Участник / Contributor: Codex (GPT-6.2 Sol, OpenAI) — ревью и правки /
+review and changes to desktop GGUF isolation, journal validation and
+experiment documentation.
+
 Распространяется по лицензии Apache 2.0 (файл LICENSE). Код можно брать,
 менять и распространять, в том числе с изменениями, но с упоминанием:
 сохраняйте этот файл NOTICE и указание авторов (раздел 4 лицензии), а в

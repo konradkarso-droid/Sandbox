@@ -16,6 +16,7 @@ import sys
 import threading
 import time
 import urllib.request
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -211,7 +212,8 @@ def test_install_check_run_laws_hold(agent, tmp_path):
     assert t1["refusals"].get("-1") and t1["refusals"].get("-2")       # попытки выхода — отказы ворот
     assert t1["unparsed"] == 1
     assert snap["tally"][2]["questions"] == 0                            # второй молчит
-    assert (run.dir / "itog.json").exists()
+    result = json.loads((run.dir / "itog.json").read_text(encoding="utf-8"))
+    assert result["runtime"]["wasmtime"] == version("wasmtime")
 
 
 def test_open_contour_openai(agent, tmp_path):
@@ -563,3 +565,60 @@ def test_own_agent_name_is_not_a_path(tmp_path, monkeypatch):
     for name in ("../start.py", "/etc/passwd", "x.txt"):
         with pytest.raises(Refusal):
             settings_from({"contour": "сомкнутый", "model": INSTALL_CHECK, "words": "x", "agent": name})
+
+
+def test_live_gguf_refuses_to_start_without_bwrap(tmp_path, monkeypatch):
+    from app import model_sandbox, runner
+
+    def no_driver(*args, **kwargs):
+        pytest.fail("executor started without a Bubblewrap sandbox")
+
+    monkeypatch.setattr(model_sandbox, "check", lambda: "user namespaces unavailable")
+    monkeypatch.setattr(runner, "SealedDriver", no_driver)
+    settings = runner.Settings(contour="сомкнутый", words="test", model=str(tmp_path / "test.gguf"))
+    run = runner.Run(settings, b"", tmp_path)
+    run.run()
+    assert run.snapshot()["state"] == "ошибка"
+    assert run.snapshot()["notes"] == [{"code": "model_sandbox_unavailable", "why": "user namespaces unavailable"}]
+
+
+def test_model_sandbox_hides_host_state(tmp_path):
+    from app import model_sandbox
+
+    if (reason := model_sandbox.check()) is not None:
+        pytest.skip(reason)
+    weights = tmp_path / "test.gguf"
+    secret = tmp_path / "host-secret"
+    journal = tmp_path / "journal5.jsonl"
+    weights.write_bytes(b"GGUF")
+    secret.write_bytes(b"secret")
+    journal.write_bytes(b"journal")
+    argv = model_sandbox.command(weights)
+    network = os.readlink("/proc/self/ns/net")
+    argv[-2:] = [
+        """
+import os, sys
+from importlib.metadata import version
+from pathlib import Path
+
+secret, journal, pid, network = sys.argv[1:]
+assert "TEST_HOST_SECRET" not in os.environ
+assert os.environ["HOME"] == "/tmp"
+assert not Path(secret).exists()
+assert not Path(journal).exists()
+assert not Path("/proc", pid).exists()
+assert os.readlink("/proc/self/ns/net") != network
+assert Path("/model/weights.gguf").read_bytes() == b"GGUF"
+try:
+    Path("/model/weights.gguf").write_bytes(b"changed")
+except OSError:
+    pass
+else:
+    raise AssertionError("GGUF mount is writable")
+Path("/tmp/model-scratch").write_bytes(b"ok")
+""",
+        str(secret), str(journal), str(os.getpid()), network,
+    ]
+    subprocess.run(argv, env={**os.environ, "TEST_HOST_SECRET": "secret"}, check=True, timeout=10)
+    assert weights.read_bytes() == b"GGUF"
+    assert journal.read_bytes() == b"journal"

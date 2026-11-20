@@ -2,10 +2,9 @@
 
 Устройство — docs/pesochnitsa_specifikatsiya.md. Здесь нет своей среды:
 исполнитель — `sandbox.process5` (первая реализация), агент — `agent9`,
-запуск контуров — `run_shag5b.one`, законы — `verification.observer6.check`.
-Новое здесь — только выбор, как отнять сеть (печать или пустое сетевое
-пространство), процесс модели или передатчик для разомкнутого контура,
-чтение журнала по ходу прогона для экрана и сводка итогов.
+запуск контуров — `sandbox.run_session.run_contours`, законы — `verification.answer_observer.check`.
+Здесь настраиваются изоляция локальной модели, передатчик для облака,
+чтение журнала по ходу прогона и сводка итогов.
 
 Экран двуязычный, поэтому отсюда уходят данные, а не фразы: события
 журнала — полями записи, заметки и отказы — кодом с параметрами (отказ
@@ -35,24 +34,29 @@ import traceback
 import zipfile
 from collections import Counter
 from dataclasses import asdict, dataclass, field
+from importlib.metadata import version
 from pathlib import Path
 
 from app import seal as sealmod
-from app import texts
+from app import model_sandbox, texts
 from app.bridge import Bridge, question_mark
 from app.cloud import Cloud
-from core.mir9 import W6
+from app.exchange import valid_session
+from app.gateway import Consent, Gateway
+from core.model_world import W6
+from env.exchange import digest, input_manifest, pack_json, put_private
 from experiments.agents9 import build as agent_build
-from experiments.pilot9 import CFG, first_line, move_of
-from run_shag5b import one
+from sandbox.agent_protocol import CFG, first_line, move_of
 from sandbox.model9 import can_unshare
 from sandbox.process5 import Driver
-from verification import observer5b, observer6
-from verification.observer5 import BROKEN, HOLDS, NA
+from sandbox.run_session import run_contours
+from verification import answer_observer, exchange_observer, observer5b
+from verification.observer5 import BROKEN, HOLDS, NA, read_journal
 
 ROOT = Path(__file__).resolve().parents[1]
 MODELS = ROOT / "models"
 RUNS = ROOT / "runs"
+EXCHANGES = ROOT / "exchange"
 AGENTS = ROOT / "agents"          # загруженные свои агенты (спецификация §12)
 OWN_MAX = 1 << 20                 # байт: предел своего модуля — объявленное число, не подобранное
 OWN_IMPORTS = {("env", "call"), ("env", "spawn")}
@@ -82,7 +86,7 @@ class Refusal(ValueError):
 
 # ---------------------------------------------------------------- агент
 
-def agent_module(lang: str = "ru") -> tuple[bytes, str]:
+def agent_module(lang: str = "ru", files: bool = False) -> tuple[bytes, str]:
     """Модуль agent9 с правилами на языке lang: clang, если есть с целью
     wasm32, иначе zig из pip."""
     errors = []
@@ -91,7 +95,8 @@ def agent_module(lang: str = "ru") -> tuple[bytes, str]:
             errors.append("zig: пакет ziglang не установлен")
             continue
         try:
-            return agent_build.build(compiler, lang), compiler
+            module = agent_build.build(compiler, lang, files=True) if files else agent_build.build(compiler, lang)
+            return module, compiler
         except RuntimeError as e:
             errors.append(f"{compiler}: {str(e).splitlines()[0][:200]}")
     raise RuntimeError("агента не собрать: " + "; ".join(errors))
@@ -151,6 +156,7 @@ class Settings:
     second: str = "молчит"             # «молчит» | «такой же»
     seed: int = 1
     agent: str = "встроенный"          # «встроенный» (agent9) или имя файла в папке agents
+    exchange: str | None = None
     agent_lang: str = "ru"             # язык правил встроенного агента: «ru» | «en»
 
     def public(self) -> dict:
@@ -199,6 +205,12 @@ def settings_from(raw: dict) -> Settings:
                  second=raw.get("second", "молчит"))
     if s.second not in ("молчит", "такой же"):
         raise Refusal("второй агент — «не ходит» или «ходит»", "the second agent either idles or acts")
+    if "exchange" in raw:
+        if not valid_session(raw["exchange"]):
+            raise Refusal("неверный номер обмена", "invalid exchange session ID")
+        if contour == "разомкнутый" and not isinstance(raw.get("cloud_export"), dict):
+            raise Refusal("облачный обмен требует подтверждения файлов", "cloud exchange requires file consent")
+        s.exchange = raw["exchange"]
     s.agent = str(raw.get("agent") or "встроенный")
     s.agent_lang = str(raw.get("agent_lang") or "ru")
     if s.agent_lang not in ("ru", "en"):
@@ -209,9 +221,9 @@ def settings_from(raw: dict) -> Settings:
             raise Refusal(chk["ru"], chk["en"])
     if contour == "сомкнутый":
         s.model = str(raw.get("model") or "").strip()
-        if not s.model:
+        if not s.model and (not s.exchange or s.agent == "встроенный"):
             raise Refusal("выбери файл модели (GGUF)", "choose a model file (GGUF)")
-        if s.model != INSTALL_CHECK:
+        if s.model and s.model != INSTALL_CHECK:
             s.model = str(model_path(s.model))
             if importlib.util.find_spec("llama_cpp") is None:
                 raise Refusal("не установлен движок локальных моделей: в терминале `python3 start.py --local`",
@@ -305,10 +317,18 @@ class Tally:
 # ---------------------------------------------------------------- прогон
 
 class Run(threading.Thread):
-    def __init__(self, s: Settings, agent: bytes, runs_dir: Path | None = None):
+    def __init__(self, s: Settings, agent: bytes, runs_dir: Path | None = None, *,
+                 files: dict[str, bytes] | None = None, consent: Consent | None = None):
         super().__init__(daemon=True, name="прогон")
         self.s, self.agent = s, agent
-        self.stamp = time.strftime("%Y%m%d_%H%M%S")
+        self.files, self.consent = files, consent
+        cloud_files = files is not None and s.contour == "разомкнутый"
+        if ((s.exchange is not None) != (files is not None) or (files is not None and not valid_session(s.exchange))
+                or cloud_files != (consent is not None)):
+            raise ValueError("обмен требует снимок, облачный обмен — подтверждение адресата и версий")
+        if consent and digest(pack_json(input_manifest(files))) != consent.manifest:
+            raise ValueError("файлы отличаются от разрешённого снимка")
+        self.stamp = s.exchange or time.strftime("%Y%m%d_%H%M%S")
         self.dir = (runs_dir or RUNS) / self.stamp
         self.lock = threading.Lock()
         self.state = "готовится"
@@ -324,11 +344,12 @@ class Run(threading.Thread):
         self.stop_requested = False
         self.t0 = time.time()
         self.finished = threading.Event()
+        self.tail_done = threading.Event()
 
     # -- экран
     def snapshot(self, since: int = 0) -> dict:
         with self.lock:
-            return {"id": self.stamp, "state": self.state, "now": time.time(), "t0": self.t0,
+            return {"id": self.stamp, "state": self.state, "complete": self.finished.is_set(), "now": time.time(), "t0": self.t0,
                     "activity": dict(self.activity), "notes": list(self.notes),
                     "cloud": self.cloud_events[-5:],
                     "tally": {i: t.public(self.s.budget) for i, t in self.tally.items()},
@@ -429,7 +450,7 @@ class Run(threading.Thread):
     def _tail(self, path: Path) -> None:
         pos, buf = 0, b""
         while True:
-            done = self.finished.is_set()
+            done = self.tail_done.is_set()
             if path.exists():
                 with open(path, "rb") as f:
                     f.seek(pos)
@@ -456,18 +477,38 @@ class Run(threading.Thread):
                 self.state = "ошибка"
                 self.notes.append({"code": "host_crash", "why": traceback.format_exc(limit=6)})
         finally:
-            self.finished.set()
             if self.bridge is not None:
                 self.bridge.close()
             try:
                 self._save()
-            except Exception:
-                pass
+            except Exception as exc:
+                if self.files is not None:
+                    with self.lock:
+                        self.state = "ошибка"
+                        self.notes.append({"code": "host_crash", "why": f"не сохранён отчёт обмена: {exc}"})
+            self.finished.set()
 
     def _run(self) -> None:
         s = self.s
         closed = s.contour == "сомкнутый"
-        plan = net_plan(s.contour)
+        use_model = bool(s.model) if closed else True
+        live_model = closed and use_model and s.model != INSTALL_CHECK
+        if self.consent or not use_model:
+            why = sealmod.check(False)
+            plan = ({"seal": "сомкнутый", "net": "gateway" if self.consent else None, "allow_net": False}
+                    if why is None
+                    else {"error": {"code": "closed_impossible", "why": why}})
+        elif live_model:
+            why = model_sandbox.check()
+            if why is not None:
+                with self.lock:
+                    self.state = "ошибка"
+                    self.notes.append({"code": "model_sandbox_unavailable", "why": why})
+                return
+            plan = {"seal": s.contour if sealmod.check(False) is None else None,
+                    "net": "bwrap", "allow_net": False}
+        else:
+            plan = net_plan(s.contour)
         if plan.get("error"):
             with self.lock:
                 self.state = "ошибка"
@@ -477,20 +518,37 @@ class Run(threading.Thread):
             with self.lock:
                 self.notes.append(plan["note"])
         timeout = s.timeout or (300.0 if closed else 90.0)
-        if closed:
-            mode = ["--script", str(INSTALL_SCRIPT)] if s.model == INSTALL_CHECK else ["--gguf", s.model]
-        else:
-            c = s.cloud
-            self.bridge = Bridge(Cloud(c["kind"], c["base"], c["model"], c["key"], c["max_tokens"]), timeout,
-                                 self._on_cloud)
-            mode = ["--relay", self.bridge.path]
-        spec = {"mode": mode, "timeout": timeout, "net": plan["net"], "allow_net": plan["allow_net"]}
-        cfg = {**CFG, "model": 2 if closed else 1, "budget": s.budget, "model_answer": s.answer, "task_seed": s.seed}
-        self.dir.mkdir(parents=True, exist_ok=True)
+        self.dir.mkdir(parents=True, exist_ok=self.files is None)
         root = self.dir / "ispolnitel"
+        if self.consent:
+            c = s.cloud
+            cloud = Cloud(c["kind"], c["base"], c["model"], c["key"], c["max_tokens"])
+            if self.consent.provider == "openai":
+                cloud._tokens_field = "max_completion_tokens"
+                cloud._send_temperature = False
+            self.bridge = Gateway(cloud, self.consent, root / "run00001", timeout, self._on_cloud)
+            spec = self.bridge.specification()
+        else:
+            if closed:
+                mode = ["--script", str(INSTALL_SCRIPT)] if s.model == INSTALL_CHECK else ["--gguf", s.model]
+            else:
+                c = s.cloud
+                self.bridge = Bridge(Cloud(c["kind"], c["base"], c["model"], c["key"], c["max_tokens"]), timeout,
+                                     self._on_cloud)
+                mode = ["--relay", self.bridge.path]
+            spec = ({"mode": mode, "timeout": timeout, "net": plan["net"], "allow_net": plan["allow_net"]}
+                    if use_model else None)
+            if live_model:
+                spec["sandbox_argv"] = model_sandbox.command(Path(s.model))
+        cfg = {**CFG, "model": (2 if closed else 1) if use_model else 0, "budget": s.budget,
+               "model_answer": s.answer, "task_seed": s.seed}
+        if self.consent:
+            cfg.update(cloud_manifest=self.consent.manifest, cloud_provider=self.consent.provider,
+                       cloud_model=self.consent.model)
         with self.lock:
-            self._act("loading_model" if closed and s.model != INSTALL_CHECK else "starting")
-        self.driver = SealedDriver(root, frozenset(), kind="6", model=spec,
+            self._act("loading_model" if live_model else "starting")
+        kind = "exchange" if self.files is not None else "6"
+        self.driver = SealedDriver(root, frozenset(), kind=kind, model=spec,
                                    timeout=TURNS_MAX * timeout + 600.0, seal_mode=plan["seal"])
         if self.stop_requested:
             self.driver.proc.kill()
@@ -499,16 +557,19 @@ class Run(threading.Thread):
         with self.lock:
             self.state = "идёт"
         mods = {1: self.agent, 2: self.agent if s.second == "такой же" else IDLE}
+        checker = exchange_observer.check if self.files is not None else answer_observer.check
         try:
-            r = one(self.driver, None, "песочница", mods, cfg, rounds=1, checker=observer6.check,
-                    extra={"ext_world": W6, "expect_all": False}, words=s.words)
+            r = run_contours(self.driver, None, "песочница", mods, cfg, rounds=1, checker=checker,
+                             extra={"ext_world": W6, "expect_all": False,
+                                    "gateway_provider": self.consent.provider if self.consent else None},
+                             words=s.words, files=self.files)
         finally:
             self.driver.close()
             for _ in range(50):                  # процессы модели умирают с исполнителем
                 if not self.driver.proc.is_alive():
                     break
                 time.sleep(0.1)
-            self.finished.set()
+            self.tail_done.set()
             tail.join(timeout=10)
         if self.stop_requested:
             with self.lock:
@@ -549,13 +610,19 @@ class Run(threading.Thread):
             c = (dump.get("contours") or {}).get(i) or (dump.get("contours") or {}).get(str(i)) or {}
             contours[i] = {"budget_left": c.get("budget"), "accepted_parts": len(c.get("accepted", [])),
                            "outcome": [v for k, v in r.get("runs", []) if k == i]}
+        journal_tip = None
+        if self.files is not None and r.get("workdir"):
+            rows, problem = read_journal(Path(r["workdir"]) / "journal5.jsonl")
+            if rows and not problem:
+                journal_tip = rows[-1]["hash"]
         with self.lock:
             self.result = {
                 "laws_total": len(counted), "laws_holds": sum(x["status"] == HOLDS for x in counted),
                 "laws_na": sum(x["status"] == NA for x in counted), "broken": broken, "groups": groups,
                 "audit": r.get("audit", []), "contours": contours,
                 "seal": plan.get("seal"), "net": plan.get("net"), "open": self.s.contour == "разомкнутый",
-                "workdir": r.get("workdir"),
+                "workdir": r.get("workdir"), "journal_tip": journal_tip,
+                "gateway": asdict(self.consent) if self.consent else None,
                 "tokens": dict(self.bridge.tokens) if self.bridge else None}
             self.state = "готово"
             self._act("done")
@@ -566,15 +633,17 @@ class Run(threading.Thread):
             return
         snap = self.snapshot()
         snap.pop("events", None)
+        snap["complete"] = True
+        snap["runtime"] = {"wasmtime": version("wasmtime")}
         with self.lock:
             snap["turns"] = {i: t.turns for i, t in self.tally.items()}
-        (self.dir / "itog.json").write_text(json.dumps(snap, ensure_ascii=False, indent=1, default=str),
-                                            encoding="utf-8")
+        data = json.dumps(snap, ensure_ascii=False, indent=1, default=str).encode("utf-8")
+        put_private(self.dir / "itog.json", data)
 
 
 def zip_run(stamp: str) -> Path:
     """Папка прогона одним zip. Имя проверяется: только прогоны из RUNS."""
-    if not (stamp.replace("_", "").isdigit() and len(stamp) == 15):
+    if not (valid_session(stamp) or (stamp.replace("_", "").isdigit() and len(stamp) == 15)):
         raise ValueError("нет такого прогона")
     d = RUNS / stamp
     if not d.is_dir():
@@ -582,6 +651,9 @@ def zip_run(stamp: str) -> Path:
     out = RUNS / f"prostranstvo_{stamp}.zip"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for p in sorted(d.rglob("*")):
-            if p.is_file():
+            rel = p.relative_to(d)
+            if "exchange-state" in rel.parts:
+                continue
+            if p.is_file() and not p.is_symlink():
                 z.write(p, p.relative_to(RUNS))
     return out

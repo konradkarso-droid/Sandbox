@@ -243,6 +243,27 @@
         <div class="param" id="tokParam"><label class="f"><span data-t="tokens_l"></span><input type="number" id="maxTokens" min="16"></label>
           <div class="hint" data-t="tokens_h"></div></div>
       </details>
+      <details class="params" id="exchangeBox">
+        <summary data-t="exchange_h"></summary>
+        <div class="hint" data-t="exchange_help"></div>
+        <div class="row">
+          <button id="btnExchangeNew" type="button" data-t="exchange_new"></button>
+          <button id="btnExchangeDetach" type="button" data-t="exchange_detach" disabled></button>
+        </div>
+        <div class="row">
+          <label class="f"><span data-t="exchange_id"></span><input type="text" id="exchangeId" maxlength="32"></label>
+          <button id="btnExchangeOpen" type="button" data-t="exchange_open"></button>
+          <button id="btnExchangeRefresh" type="button" data-t="exchange_refresh" disabled></button>
+        </div>
+        <div id="exchangePath" class="small"></div>
+        <label id="exchangeWasmRow" class="f hidden">
+          <span data-t="exchange_wasm"></span><input type="checkbox" id="exchangeWasm">
+        </label>
+        <input id="exchangeFiles" type="file" multiple disabled>
+        <div id="exchangeStatus" class="hint" role="status"></div>
+        <div id="exchangeCloudFiles" class="hidden"></div>
+        <div id="exchangeResults"></div>
+      </details>
       <button class="start" id="btnStart" data-t="start"></button>
       <div class="why" id="why"></div>
     </div>
@@ -280,10 +301,19 @@ const fill = (s, p) => String(s).replace(/\{(\w+)\}/g, (_, k) => (p && p[k] !== 
 const T = {
  ru: {
   title: "Пространство", subtitle: "песочница для ИИ-агентов", how_link: "Как это устроено",
-  model_h: "Модель", local: "Локальная", local_sub: "файл GGUF на этом компьютере", cloud: "Облачная",
+  exchange_h: "Файлы обмена", exchange_help: "Создай папку и добавь файлы перед запуском. Готовые файлы появятся после подтверждения каждой выдачи.",
+  exchange_new: "Создать папку", exchange_detach: "Отключить", exchange_id: "Номер сеанса", exchange_open: "Открыть", exchange_refresh: "Обновить файлы",
+  exchange_cloud_need: "Выбери версии для облака и провайдера из списка.",
+  exchange_cloud_files: "Версии, разрешённые для облака в этом сеансе",
+  exchange_cloud_confirm: "Разрешить отправку текста задания и данных выбранных версий в {provider} ({model}) для этого сеанса?\n{files}",
+  exchange_gateway_unavailable: "Файловый облачный шлюз требует рабочую печать сети.", exchange_wasm: "Запустить свой Wasm без модели",
+  exchange_inbox: "Вход", exchange_outbox: "Выход", exchange_approve: "Подтвердить выдачу", exchange_download: "Скачать",
+  exchange_confirm: "Выдать файл «{name}» в outbox?", exchange_uploaded: "Добавлено файлов: {count}",
+  exchange_empty: "Нет оплаченных заявок на выдачу.", exchange_processing: "Ожидается итог проверки.",
+  model_h: "Модель", local: "Локальная", local_sub: "файл GGUF из доверенного источника", cloud: "Облачная",
   cloud_sub: "по адресу и ключу",
-  local_explain: "Модель работает внутри песочницы, на этом компьютере. Сеть у неё отнята системой: вопросы агента никуда не уходят.",
-  local_noseal: "Здесь системе нечем отнять сеть у модели, поэтому локальная модель недоступна. Облачная работает.",
+  local_explain: "Модель запускается через Bubblewrap с отдельной сетью, файловой системой и пространством процессов.",
+  local_noseal: "Для локальной модели требуется рабочий Bubblewrap (bwrap): {why}.",
   cloud_explain: "Модель у поставщика или в отдельной программе на этом компьютере (Ollama, LM Studio). Вопросы агента уходят ей по сети — каждый оплачен из бюджета агента и записан в журнал до отправки. У самой песочницы сети нет.",
   found: "Найдено в папке моделей:", nofound: "В папке моделей пока нет файлов. Укажи путь к своему файлу или скачай по ссылке.",
   path_l: "Или путь к файлу .gguf на этом компьютере", url_l: "Или скачать по ссылке — например, с huggingface.co",
@@ -361,6 +391,7 @@ const T = {
   laws_n: "{h} из {n}",
   n_no_seal_netns: "Печать сети здесь не встала ({why}). Сеть у модели отнята другим способом — пустым сетевым пространством.",
   n_no_seal_open: "Печать сети не поставлена ({why}): песочницу держит только устройство ворот.",
+  n_model_sandbox_unavailable: "Bubblewrap: {why}",
   n_closed_impossible: "Локальную модель здесь не запустить: системе нечем отнять у неё сеть ({why}).",
   n_cloud_failed: "Облако не ответило: {why}. Агент получил «модель молчит».",
   n_host_crash: "Сбой программы экрана:\n{why}",
@@ -368,10 +399,19 @@ const T = {
  },
  en: {
   title: "Prostranstvo", subtitle: "a sandbox for AI agents", how_link: "How it works",
-  model_h: "Model", local: "Local", local_sub: "a GGUF file on this computer", cloud: "Cloud",
+  exchange_h: "File exchange", exchange_help: "Create a folder and add files before starting. Approve each result to release it.",
+  exchange_new: "Create folder", exchange_detach: "Disconnect", exchange_id: "Session ID", exchange_open: "Open", exchange_refresh: "Refresh files",
+  exchange_cloud_need: "Choose file versions for cloud export and a listed provider.",
+  exchange_cloud_files: "File versions approved for this cloud session",
+  exchange_cloud_confirm: "Allow this session to send the task text and data from these versions to {provider} ({model})?\n{files}",
+  exchange_gateway_unavailable: "The cloud file gateway requires the executor's network seal.", exchange_wasm: "Run custom Wasm without a model",
+  exchange_inbox: "Inbox", exchange_outbox: "Outbox", exchange_approve: "Approve release", exchange_download: "Download",
+  exchange_confirm: "Release “{name}” to outbox?", exchange_uploaded: "Files added: {count}",
+  exchange_empty: "No paid release requests.", exchange_processing: "Waiting for the verification report.",
+  model_h: "Model", local: "Local", local_sub: "a GGUF file from a trusted source", cloud: "Cloud",
   cloud_sub: "by address and key",
-  local_explain: "The model runs inside the sandbox on this computer. The system takes its network away: the agent's questions go nowhere.",
-  local_noseal: "This system cannot take the network away from the model, so a local model is not available here. Cloud works.",
+  local_explain: "Bubblewrap isolates the local model’s network, filesystem and processes.",
+  local_noseal: "Local models require working Bubblewrap (bwrap): {why}.",
   cloud_explain: "The model is at a provider or in a separate program on this computer (Ollama, LM Studio). The agent's questions reach it over the network — each one is paid for from the agent's budget and logged before it is sent. The sandbox itself has no network.",
   found: "Found in the models folder:", nofound: "The models folder is empty. Give the path to your file or download one by link.",
   path_l: "Or the path to a .gguf file on this computer", url_l: "Or download by link — e.g. from huggingface.co",
@@ -449,6 +489,7 @@ const T = {
   laws_n: "{h} of {n}",
   n_no_seal_netns: "The network seal did not take here ({why}). The model's network is taken away another way — by an empty network namespace.",
   n_no_seal_open: "No network seal ({why}): only the gates hold the sandbox.",
+  n_model_sandbox_unavailable: "Bubblewrap: {why}",
   n_closed_impossible: "A local model cannot run here: the system cannot take its network away ({why}).",
   n_cloud_failed: "The cloud did not answer: {why}. The agent got “the model is silent”.",
   n_host_crash: "The screen program failed:\n{why}",
@@ -574,6 +615,176 @@ let agentKind = "builtin", ownPick = "", agentLangTouched = false;
 const GUIDE = {ru: "https://github.com/konradkarso-droid/Sandbox/blob/main/prostranstvo/docs/svoy_agent.md",
                en: "https://github.com/konradkarso-droid/Sandbox/blob/main/prostranstvo/docs/own_agent_en.md"};
 const openRaw = new Set(), openGroups = new Set();
+let exchangeJob = null, exchangeStarted = null;
+const cloudFileSelection = new Map();
+
+function cloudExchangeVersions() {
+  return (exchangeJob?.inputs || []).filter(f => cloudFileSelection.get(f.name) === f.sha256);
+}
+
+function showCloudFileSelection(active) {
+  const panel = $("exchangeCloudFiles");
+  const visible = active && contour === "разомкнутый" && !exchangeJob.started;
+  panel.classList.toggle("hidden", !visible);
+  panel.replaceChildren();
+  if (!visible) return;
+  const title = document.createElement("p");
+  title.textContent = t("exchange_cloud_files");
+  panel.append(title);
+  for (const item of exchangeJob.inputs || []) {
+    const row = document.createElement("label");
+    row.className = "f";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = cloudFileSelection.get(item.name) === item.sha256;
+    checkbox.disabled = running;
+    checkbox.onchange = () => {
+      if (checkbox.checked) cloudFileSelection.set(item.name, item.sha256);
+      else cloudFileSelection.delete(item.name);
+      checkReady();
+    };
+    const name = document.createElement("span");
+    name.textContent = `${item.name} · ${kb(item.size)}`;
+    name.title = item.sha256;
+    row.append(name, checkbox);
+    panel.append(row);
+  }
+}
+
+function ownWithoutModel() {
+  return !!exchangeJob && agentKind === "own" && $("exchangeWasm").checked;
+}
+
+function showExchange() {
+  const active = !!exchangeJob;
+  $("btnExchangeNew").disabled = running;
+  $("btnExchangeOpen").disabled = running;
+  $("btnExchangeRefresh").disabled = !active || running || exchangeJob.started;
+  $("btnExchangeDetach").disabled = !active || running;
+  $("exchangeFiles").disabled = !active || running || exchangeStarted === exchangeJob?.id;
+  $("exchangeWasmRow").classList.toggle("hidden", !active || contour !== "сомкнутый" || agentKind !== "own");
+  $("exchangePath").textContent = active
+    ? `${t("exchange_inbox")}: ${exchangeJob.inbox} · ${t("exchange_outbox")}: ${exchangeJob.outbox}` : "";
+  $("exchangeResults").replaceChildren();
+  showCloudFileSelection(active);
+  if (!active) return;
+  for (const item of exchangeJob.requests || []) {
+    const row = document.createElement("div");
+    const label = document.createElement("span");
+    label.textContent = `${item.name} · ${kb(item.size)} `;
+    label.title = item.sha256;
+    row.append(label);
+    if (item.published) {
+      const link = document.createElement("a");
+      const args = new URLSearchParams({id: exchangeJob.id, request: String(item.id), t: TOKEN});
+      link.href = "/api/exchange/file?" + args.toString();
+      link.textContent = t("exchange_download");
+      row.append(link);
+    } else {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = t("exchange_approve");
+      button.onclick = () => approveFile(item, button);
+      row.append(button);
+    }
+    $("exchangeResults").append(row);
+  }
+}
+
+async function refreshExchange() {
+  const id = exchangeJob?.id;
+  if (!id) return;
+  const info = await api("/api/exchange?" + new URLSearchParams({id}));
+  if (exchangeJob?.id !== id) return;
+  exchangeJob = info;
+  showExchange(); checkReady();
+  if (exchangeStarted === id) {
+    $("exchangeStatus").textContent = info.issue || (info.ready
+      ? (info.requests.length ? "" : t("exchange_empty")) : t("exchange_processing"));
+  } else if (info.issue) {
+    $("exchangeStatus").textContent = info.issue;
+  }
+}
+
+function rememberExchange(id) {
+  try {
+    if (id) localStorage.setItem("prostranstvo_exchange", id);
+    else localStorage.removeItem("prostranstvo_exchange");
+  } catch (e) {}
+  $("exchangeId").value = id || "";
+}
+
+async function openExchange(id) {
+  if (!id || running) return;
+  try {
+    exchangeJob = await api("/api/exchange?" + new URLSearchParams({id}));
+    cloudFileSelection.clear();
+    exchangeStarted = exchangeJob.started ? exchangeJob.id : null;
+    rememberExchange(exchangeJob.id);
+    $("exchangeBox").open = true;
+    $("exchangeStatus").textContent = exchangeJob.issue || (exchangeJob.ready && !exchangeJob.requests.length ? t("exchange_empty") : "");
+    showExchange();
+    checkReady();
+  } catch (e) {
+    $("exchangeStatus").textContent = e.message;
+  }
+}
+
+async function prepareExchange() {
+  $("btnExchangeNew").disabled = true;
+  try {
+    exchangeJob = await api("/api/exchange/new", {});
+    cloudFileSelection.clear();
+    rememberExchange(exchangeJob.id);
+    exchangeStarted = null;
+    $("exchangeBox").open = true;
+    $("exchangeStatus").textContent = "";
+    $("exchangeWasm").checked = false;
+  } catch (e) {
+    $("exchangeStatus").textContent = e.message;
+  }
+  showExchange();
+  checkReady();
+}
+
+async function addExchangeFiles() {
+  const input = $("exchangeFiles"), id = exchangeJob?.id;
+  if (!id) return;
+  const selected = Array.from(input.files);
+  input.disabled = true;
+  $("btnStart").disabled = true;
+  let count = 0;
+  try {
+    for (const file of selected) {
+      if (file.size > 65536) throw new Error(LANG === "ru" ? "Файл больше 64 КиБ" : "File exceeds 64 KiB");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let raw = "";
+      for (const byte of bytes) raw += String.fromCharCode(byte);
+      await api("/api/exchange/upload", {id, name: file.name, data: btoa(raw)});
+      count++;
+    }
+    await refreshExchange();
+    $("exchangeStatus").textContent = t("exchange_uploaded", {count});
+  } catch (e) {
+    $("exchangeStatus").textContent = t("exchange_uploaded", {count}) + ". " + e.message;
+  } finally {
+    input.value = "";
+    showExchange();
+    checkReady();
+  }
+}
+
+async function approveFile(item, button) {
+  if (!exchangeJob || !confirm(t("exchange_confirm", {name: item.name}))) return;
+  button.disabled = true;
+  try {
+    await api("/api/exchange/approve", {id: exchangeJob.id, request: item.id});
+    await refreshExchange();
+  } catch (e) {
+    $("exchangeStatus").textContent = e.message;
+    button.disabled = false;
+  }
+}
 
 function applyLang() {
   document.documentElement.lang = LANG;
@@ -581,7 +792,7 @@ function applyLang() {
   for (const el of document.querySelectorAll("[data-t]")) el.textContent = t(el.dataset.t);
   for (const b of document.querySelectorAll("[data-lang]")) b.classList.toggle("on", b.dataset.lang === LANG);
   if (!INFO) return;
-  renderHow(); renderLocal(); renderPresets(); renderKeyHint(); renderScenarios(); renderOwn(); setContour(contour); countWords();
+  renderHow(); renderLocal(); renderPresets(); renderScenarios(); renderOwn(); setContour(contour); countWords();
   movesKey = "";
   if (LAST) render(LAST);
 }
@@ -593,7 +804,8 @@ function setContour(c) {
   $("localBox").classList.toggle("hidden", c !== "сомкнутый");
   $("cloudBox").classList.toggle("hidden", c !== "разомкнутый");
   $("tokParam").classList.toggle("hidden", c !== "разомкнутый");
-  $("contourExplain").textContent = c === "сомкнутый" ? (INFO.closed_ok ? t("local_explain") : t("local_noseal")) : t("cloud_explain");
+  $("contourExplain").textContent = c === "сомкнутый" ? (INFO.closed_ok ? t("local_explain") : t("local_noseal", {why: INFO.model_sandbox_error})) : t("cloud_explain");
+  showExchange();
   checkReady();
 }
 
@@ -638,13 +850,14 @@ function renderPresets() {
 }
 function renderKeyHint() {
   const p = presetObj(), local = p.base.startsWith("http://127.");
+  const generic = INFO.generic_env_key && !(exchangeJob && contour === "разомкнутый");
   $("key").placeholder = local ? t("key_none") : t("key_ph");
   $("keyOut").textContent = p.has_env_key ? t("key_env", {env: p.key_env})
-    : INFO.generic_env_key ? t("key_env", {env: "PROSTRANSTVO_KEY"}) : (p.key_env ? t("key_hint", {env: p.key_env}) : "");
+    : generic ? t("key_env", {env: "PROSTRANSTVO_KEY"}) : (p.key_env ? t("key_hint", {env: p.key_env}) : "");
 }
 function onPreset() {
   $("base").value = presetObj().base; $("modelList").innerHTML = ""; $("checkOut").textContent = "";
-  renderKeyHint(); checkReady();
+  checkReady();
 }
 function cloudBody() {
   const p = presetObj(), c = {preset: p.id, kind: p.kind, base: $("base").value.trim(), model: $("model").value.trim(), key: $("key").value};
@@ -673,7 +886,7 @@ function setAgent(kind) {
   for (const r of document.querySelectorAll("input[name=ag]")) r.checked = r.value === kind;
   $("chBuiltin").classList.toggle("on", kind === "builtin"); $("chOwn").classList.toggle("on", kind === "own");
   $("builtinBox").classList.toggle("hidden", kind !== "builtin"); $("ownBox").classList.toggle("hidden", kind !== "own");
-  checkReady();
+  showExchange(); checkReady();
 }
 function renderOwn() {
   const rows = INFO.own_agents.map((a) => `<label class="choice ${ownPick === a.name ? "on" : ""}">
@@ -724,13 +937,26 @@ function countWords() {
 function modelPath() { return $("path").value.trim() || localPick; }
 function checkReady() {
   if (!INFO) return;
+  renderKeyHint();
   let why = "";
   if (!INFO.agent) why = INFO.agent_error || "agent";
   else if (contour === "сомкнутый") {
-    if (!INFO.closed_ok) why = t("no_local");
+    if (exchangeJob && exchangeStarted === exchangeJob.id) why = t("exchange_new");
+    else if (ownWithoutModel()) {
+      if (!INFO.exchange_wasm_ok) why = t("no_local");
+    } else if (!INFO.closed_ok) why = t("no_local");
     else if (!INFO.llama) why = t("need_engine");
     else if (!modelPath()) why = t("need_file");
   } else if (!$("base").value.trim() || !$("model").value.trim()) why = t("need_cloud");
+  else if (exchangeJob) {
+    if (exchangeStarted === exchangeJob.id) why = t("exchange_new");
+    else if (!INFO.exchange_wasm_ok) why = t("exchange_gateway_unavailable");
+    else {
+      const p = presetObj();
+      if (!p.base.startsWith("https://") || $("base").value.trim() !== p.base || !cloudExchangeVersions().length)
+        why = t("exchange_cloud_need");
+    }
+  }
   if (!why && agentKind === "own" && !ownPick) why = t("need_own");
   if (!why && !$("words").value.trim()) why = t("need_words");
   $("btnStart").disabled = running || !!why;
@@ -749,10 +975,24 @@ async function start() {
   const b = {contour, words: $("words").value, budget: Number($("budget").value), answer: Number($("answer").value),
     timeout: Number($("timeout").value), seed: Number($("seed").value), second: $("second").value,
     agent: agentKind === "own" ? ownPick : "встроенный", agent_lang: $("agentLang").value};
-  if (contour === "сомкнутый") b.model = modelPath(); else Object.assign(b, cloudBody());
+  if (contour === "сомкнутый") {
+    b.model = ownWithoutModel() ? "" : modelPath();
+  } else {
+    Object.assign(b, cloudBody());
+    if (exchangeJob) {
+      const versions = cloudExchangeVersions();
+      const preset = presetObj();
+      const files = versions.map(f => `${f.name} · ${f.sha256}`).join("\n");
+      if (!versions.length || !confirm(t("exchange_cloud_confirm", {provider: preset.name, model: b.cloud.model, files}))) return;
+      b.cloud_export = {provider: preset.id, files: versions.map(({name, sha256}) => ({name, sha256}))};
+    }
+  }
+  if (exchangeJob) b.exchange = exchangeJob.id;
   try { await api("/api/start", b); }
   catch (e) { $("why").textContent = e.message; return; }
   running = true; since = 0; events = []; LAST = null; tab = 1; movesKey = ""; openRaw.clear(); openGroups.clear();
+  if (b.exchange) exchangeStarted = b.exchange;
+  showExchange();
   $("how").classList.add("hidden"); $("notes").innerHTML = "";
   checkReady(); poll = setInterval(tick, 700); tick();
 }
@@ -765,7 +1005,13 @@ async function tick() {
   clockSkew = Date.now() / 1000 - r.now;
   events.push(...r.events); since = r.next; r.events = [];
   LAST = r; render(r);
-  if (["готово", "остановлено", "ошибка"].includes(r.state)) { clearInterval(poll); running = false; checkReady(); }
+  if (["готово", "остановлено", "ошибка"].includes(r.state) && r.complete !== false) {
+    clearInterval(poll); running = false; showExchange(); checkReady();
+    if (r.settings.exchange && exchangeJob?.id === r.settings.exchange) {
+      exchangeStarted = r.settings.exchange;
+      await refreshExchange().catch(e => { $("exchangeStatus").textContent = e.message; });
+    }
+  }
 }
 
 function kb(n) { return n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`; }
@@ -774,7 +1020,7 @@ function clock(s) { s = Math.max(0, Math.round(s)); return s < 60 ? `${s} ${sec(
 const live = (r) => ["готовится", "идёт", "проверка законов"].includes(r.state);
 
 function render(r) {
-  $("notes").innerHTML = r.notes.map((n) => `<div class="note ${["cloud_failed", "host_crash", "closed_impossible"].includes(n.code) ? "bad" : "warn"}">${esc(t("n_" + n.code, {why: n.why}))}</div>`).join("");
+  $("notes").innerHTML = r.notes.map((n) => `<div class="note ${["cloud_failed", "host_crash", "closed_impossible", "model_sandbox_unavailable"].includes(n.code) ? "bad" : "warn"}">${esc(t("n_" + n.code, {why: n.why}))}</div>`).join("");
   $("statusCard").classList.remove("hidden");
   const st = {"проверка законов": "st_check", "готово": "st_done", "остановлено": "st_stopped", "ошибка": "st_error"}[r.state] || "st_run";
   $("state").textContent = t(st);
@@ -917,6 +1163,14 @@ async function init() {
   for (const id of ["base", "model", "key"]) $(id).oninput = checkReady;
   $("btnDl").onclick = download; $("btnModels").onclick = listModels; $("btnCheck").onclick = checkCloud;
   $("btnStart").onclick = start; $("btnStop").onclick = stop;
+  $("btnExchangeNew").onclick = prepareExchange;
+  $("btnExchangeDetach").onclick = () => {
+    exchangeJob = null; exchangeStarted = null; cloudFileSelection.clear(); rememberExchange(null); showExchange(); checkReady();
+  };
+  $("btnExchangeOpen").onclick = () => openExchange($("exchangeId").value.trim());
+  $("btnExchangeRefresh").onclick = () => refreshExchange().catch(e => { $("exchangeStatus").textContent = e.message; });
+  $("exchangeFiles").onchange = addExchangeFiles;
+  $("exchangeWasm").onchange = checkReady;
   for (const r of document.querySelectorAll("input[name=ag]")) r.onchange = () => setAgent(r.value);
   $("btnUpload").onclick = () => $("ownFile").click(); $("ownFile").onchange = uploadOwn;
   $("agentLang").onchange = () => { agentLangTouched = true; };
@@ -928,6 +1182,13 @@ async function init() {
   pickScenario("work");
   setContour(INFO.closed_ok ? "сомкнутый" : "разомкнутый");
   const r = await api("/api/run?since=0");
+  let remembered = null;
+  try { remembered = localStorage.getItem("prostranstvo_exchange"); } catch (e) {}
+  const exchangeId = r.settings?.exchange || remembered;
+  if (exchangeId) {
+    if (r.settings?.contour) setContour(r.settings.contour);
+    await openExchange(exchangeId);
+  }
   if (r.state && !["нет", "готово", "остановлено", "ошибка"].includes(r.state)) {      // страницу открыли заново посреди прогона
     running = true; $("how").classList.add("hidden"); checkReady(); poll = setInterval(tick, 700); tick();
   }

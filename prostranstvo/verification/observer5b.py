@@ -22,6 +22,8 @@ from pathlib import Path
 
 from core.mir3 import World, build, can_deliver_e, can_deliver_output, moves, start
 from core.world import MESSAGES, NO_DRAFT, Params, initial_state, successors
+from env.fixation_log import validate_fixations
+from env.journal import JournalBroken
 from verification import observer5
 from verification.observer5 import BROKEN, HOLDS, NA, read_journal
 from verification.pebble_search import fast
@@ -31,7 +33,7 @@ LAWS = {
     "И2р": "получатели только растут",
     "И3р": "у каждой доставки есть списание с тем же номером, не меньше цены",
     "И4р": "отказанных номеров у получателей нет",
-    "И5р": "цепочка журнала цела; расход исполнителя = расходу по журналу",
+    "И5р": "цепочка и порядок фиксаций целы; расход исполнителя = расходу по журналу",
     "И6р": "цена × число доставок ≤ сумма списаний",
     "И7р": "журнал только растёт",
     "И10р": "один номер фиксации — не больше одной доставки",
@@ -65,7 +67,7 @@ def cost(r: dict) -> int:
     по журналу = сумма charge его действий + сумма cost по его записям
     (закон И1р). Одно правило на всех: им же считает остаток экран песочницы."""
     return {"работа": r.get("price", 0), "списание": r.get("price", 0), "отказ": r.get("charge", 0),
-            "отказ ворот": r.get("charge", 0), "выброс": r.get("price", 0),
+            "отказ ворот": r.get("charge", 0), "инструмент": r.get("charge", 0), "выброс": r.get("price", 0),
             "проверка": r.get("price", 0) if r.get("payer") == "агент" else 0}.get(r["kind"], 0)
 
 
@@ -119,6 +121,11 @@ def check(run: dict) -> dict[str, tuple[str, str]]:
                 bad["И2р"].append(f"получатель {k} уменьшился")
     if broken:
         bad["И5р"].append(broken)
+    else:
+        try:
+            validate_fixations(recs)
+        except JournalBroken as exc:
+            bad["И5р"].append(str(exc))
 
     for i in (1, 2):
         # «восстановлено» общее для контуров: в нём нет поля contour
@@ -305,7 +312,7 @@ def _amount(r: dict, i: int) -> int:
         return 0
     if k in ("работа", "списание", "выброс"):
         return r.get("price", 0)
-    if k in ("отказ", "отказ ворот"):
+    if k in ("отказ", "отказ ворот", "инструмент"):
         return r.get("charge", 0)
     if k == "проверка" and r.get("payer") == "агент":
         return r.get("price", 0)

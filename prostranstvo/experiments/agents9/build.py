@@ -29,19 +29,20 @@ COMPILERS = {
 }
 
 
-def build(compiler: str = "clang", lang: str = "ru") -> bytes:
+def build(compiler: str = "clang", lang: str = "ru", *, files: bool = False) -> bytes:
     """Модуль agent9. lang — язык правил и итогов для модели: «ru» или «en»
     (ходы агент понимает на обоих; agent9.c, начало файла)."""
     if lang not in ("ru", "en"):
         raise ValueError("язык агента — ru или en")
-    key = hashlib.sha256(compiler.encode() + lang.encode()
+    key = hashlib.sha256(compiler.encode() + lang.encode() + (b"exchange" if files else b"")
                          + b"".join(p.read_bytes() for p in SOURCES)).hexdigest()[:16]
     out = CACHE / f"{key}.wasm"
     if out.exists():
         return out.read_bytes()
     CACHE.mkdir(parents=True, exist_ok=True)
     tmp = out.with_suffix(".tmp")
-    cmd = [*COMPILERS[compiler], *(["-DLANG_EN"] if lang == "en" else []), "-nostdlib", "-O2", "-fno-builtin", "-Wl,--no-entry",
+    defines = (["-DLANG_EN"] if lang == "en" else []) + (["-DEXCHANGE_AGENT"] if files else [])
+    cmd = [*COMPILERS[compiler], *defines, "-nostdlib", "-O2", "-fno-builtin", "-Wl,--no-entry",
            "-Wl,-z,stack-size=16384", "-Wl,--initial-memory=131072", "-Wl,--max-memory=131072",
            "-o", str(tmp), str(HERE / "agent9.c")]
     try:

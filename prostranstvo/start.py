@@ -26,11 +26,12 @@ import platform
 import socket
 import subprocess
 import sys
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 VENV = HERE / ".venv"
-REQUIRED = ["wasmtime==50.0.1"]
+WASMTIME_VERSION = "50.0.1"
 LOCAL_ENGINE = "llama-cpp-python==0.3.37"     # той же версии, что в шагах 9–9б (serve.py)
 
 
@@ -67,10 +68,13 @@ def ensure_venv(argv: list[str]) -> None:
 
 def ensure_packages(local: bool) -> None:
     try:
-        import wasmtime  # noqa: F401
-    except ImportError:
-        say("Ставлю wasmtime … / Installing wasmtime …")
-        if not pip(*REQUIRED):
+        installed = version("wasmtime")
+    except PackageNotFoundError:
+        installed = None
+    if installed != WASMTIME_VERSION:
+        requirement = f"wasmtime=={WASMTIME_VERSION}"
+        say(f"Ставлю {requirement} … / Installing {requirement} …")
+        if not pip(requirement):
             say("wasmtime не встал — проверь связь с pypi.org. / wasmtime failed to install — check access to pypi.org.")
             sys.exit(1)
     if local:

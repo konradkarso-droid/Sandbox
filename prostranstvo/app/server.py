@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import http.server
@@ -35,8 +36,11 @@ from pathlib import Path
 
 from app import seal as sealmod
 from app.cloud import PRESETS, Cloud, CloudError, check, list_models
-from app import texts
-from app.runner import (AGENTS, ANSWER_MAX, MODELS, OWN_MAX, RUNS, WORDS_AGENT_READS, Refusal, Run, agent_module,
+from app import model_sandbox, texts
+from app.exchange import ExchangeJob
+from app.gateway import select_files
+from env.exchange import MAX_FILE_BYTES, snapshot_inbox
+from app.runner import (AGENTS, ANSWER_MAX, EXCHANGES, MODELS, OWN_MAX, RUNS, WORDS_AGENT_READS, Refusal, Run, agent_module,
                         own_agent_check, own_agent_source, settings_from, zip_run)
 from sandbox.model9 import can_unshare
 
@@ -60,6 +64,7 @@ class App:
         self.lock = threading.Lock()
         self.seal = {"сомкнутый": sealmod.check(False), "разомкнутый": sealmod.check(True)}
         self.unshare = can_unshare()
+        self.model_sandbox_error = model_sandbox.check()
         try:
             self.agent = agent_module("ru")
             self.agent_en = agent_module("en")[0]
@@ -73,7 +78,9 @@ class App:
         return {
             "platform": f"{platform.system()} {platform.machine()}",
             "seal": self.seal, "unshare": self.unshare,
-            "closed_ok": self.seal["сомкнутый"] is None or self.unshare,
+            "closed_ok": self.model_sandbox_error is None,
+            "exchange_wasm_ok": self.seal["сомкнутый"] is None,
+            "model_sandbox_error": self.model_sandbox_error,
             "llama": importlib.util.find_spec("llama_cpp") is not None,
             "models": [{"name": p.name, "path": str(p), "mb": round(p.stat().st_size / 2 ** 20)} for p in files],
             "models_dir": str(MODELS),
@@ -112,14 +119,14 @@ class App:
         (AGENTS / name).write_bytes(data)
         return {"name": name, **chk}
 
-    def key_for(self, cloud: dict) -> str:
+    def key_for(self, cloud: dict, *, allow_generic: bool = True) -> str:
         """Ключ с экрана, иначе из окружения по готовому адресу, иначе общий."""
         if cloud.get("key"):
             return cloud["key"]
         preset = next((p for p in PRESETS if p["id"] == cloud.get("preset")), None)
         if preset and preset["key_env"] in self.env_keys:
             return self.env_keys[preset["key_env"]]
-        return self.env_keys.get("PROSTRANSTVO_KEY", "")
+        return self.env_keys.get("PROSTRANSTVO_KEY", "") if allow_generic else ""
 
     def cloud_of(self, body: dict) -> Cloud:
         c = body.get("cloud") or {}
@@ -136,14 +143,35 @@ class App:
                 raise Refusal("прогон уже идёт", "a run is already in progress")
             if not self.agent:
                 raise Refusal(self.agent_error or "агент не собран", self.agent_error or "the agent is not built")
-            if isinstance(body.get("cloud"), dict):
-                body = {**body, "cloud": {**body["cloud"], "key": self.key_for(body["cloud"])}}
+            cloud = body.get("cloud")
+            if isinstance(cloud, dict):
+                scoped = "exchange" in body and body.get("contour") == "разомкнутый"
+                if scoped and isinstance(export := body.get("cloud_export"), dict):
+                    provider = export.get("provider")
+                    if cloud.get("preset", provider) != provider:
+                        raise Refusal("ключ и разрешение должны относиться к одному провайдеру",
+                                      "the key preset must match the approved provider")
+                    cloud = {**cloud, "preset": provider}
+                body = {**body, "cloud": {**cloud, "key": self.key_for(cloud, allow_generic=not scoped)}}
             s = settings_from(body)
+            files = consent = None
+            if s.exchange:
+                job = ExchangeJob(EXCHANGES, RUNS, s.exchange)
+                if job.run.exists():
+                    raise Refusal("сеанс обмена уже запускался", "exchange session has already been run")
+                try:
+                    files = snapshot_inbox(job.root / "inbox")
+                    if s.contour == "разомкнутый":
+                        consent, files = select_files(body.get("cloud_export"), files, s.cloud)
+                except (ValueError, OSError) as exc:
+                    raise Refusal(f"вход обмена: {exc}", f"exchange inbox: {exc}") from exc
             if s.agent != "встроенный":
                 module = own_agent_source(s.agent)
+            elif files is not None:
+                module = agent_module(s.agent_lang, files=True)[0]
             else:
                 module = self.agent_en if s.agent_lang == "en" else self.agent[0]
-            self.run = Run(s, module)
+            self.run = Run(s, module, files=files, consent=consent)
             self.run.start()
             return {"id": self.run.stamp}
 
@@ -234,10 +262,18 @@ def make_handler(app: App):
 
         def _body(self) -> dict:
             n = int(self.headers.get("content-length") or 0)
-            if n > (2 * OWN_MAX if self.path.startswith("/api/agent") else 64 * 1024):
+            limit = 64 * 1024
+            if self.path == "/api/exchange/upload":
+                limit = 2 * MAX_FILE_BYTES
+            elif self.path.startswith("/api/agent"):
+                limit = 2 * OWN_MAX
+            if not 0 <= n <= limit:
                 raise ValueError("слишком длинный запрос")
             raw = self.rfile.read(n) if n else b"{}"
-            return json.loads(raw or b"{}")
+            value = json.loads(raw or b"{}")
+            if not isinstance(value, dict):
+                raise ValueError("ожидается объект JSON")
+            return value
 
         def do_GET(self):
             u = urllib.parse.urlsplit(self.path)
@@ -259,6 +295,18 @@ def make_handler(app: App):
                 self._json(app.run.snapshot(since) if app.run else {"state": "нет"})
             elif u.path == "/api/downloads":
                 self._json(app.downloads)
+            elif u.path in ("/api/exchange", "/api/exchange/file"):
+                try:
+                    job = ExchangeJob(EXCHANGES, RUNS, (q.get("id") or [""])[0])
+                    if u.path == "/api/exchange":
+                        self._json(job.info())
+                    else:
+                        name, data = job.download(int((q.get("request") or [""])[0]))
+                        filename = urllib.parse.quote(name, safe="")
+                        self._send(200, data, "application/octet-stream",
+                                   {"content-disposition": f"attachment; filename*=UTF-8''{filename}"})
+                except (ValueError, OSError) as exc:
+                    self._json({"error": str(exc)}, 400)
             elif u.path.startswith("/api/zip/"):
                 try:
                     p = zip_run(u.path.rsplit("/", 1)[1])
@@ -279,6 +327,17 @@ def make_handler(app: App):
                 body = self._body()
                 if u.path == "/api/start":
                     self._json(app.start(body))
+                elif u.path == "/api/exchange/new":
+                    self._json(ExchangeJob.create(EXCHANGES, RUNS).info())
+                elif u.path in ("/api/exchange/upload", "/api/exchange/approve"):
+                    with app.lock:
+                        job = ExchangeJob(EXCHANGES, RUNS, body.get("id"))
+                        if u.path == "/api/exchange/upload":
+                            data = base64.b64decode(body.get("data", ""), validate=True)
+                            job.add_input(body.get("name"), data)
+                            self._json({"ok": True})
+                        else:
+                            self._json(job.approve(body.get("request")))
                 elif u.path == "/api/stop":
                     if app.run:
                         app.run.stop()
@@ -298,7 +357,7 @@ def make_handler(app: App):
                 self._json({"error": str(e)}, 502)
             except Refusal as e:
                 self._json({"error": e.ru, "error_en": e.en}, 400)
-            except (ValueError, TypeError) as e:
+            except (ValueError, TypeError, OSError, RuntimeError) as e:
                 self._json({"error": str(e)}, 400)
 
     return Handler

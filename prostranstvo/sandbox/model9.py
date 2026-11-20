@@ -117,7 +117,8 @@ def argv_for(mode: list[str], allow_net: bool = False) -> list[str]:
 class ModelLink:
     """Один процесс модели — для одного контура."""
 
-    def __init__(self, argv: list[str], timeout: float = 120.0, isolated: bool | None = None):
+    def __init__(self, argv: list[str], timeout: float = 120.0, isolated: bool | None = None,
+                 sandboxed: bool = False):
         self.argv, self.timeout = list(argv), timeout
         # Запущен ли процесс без сети. Режим 2 («модель на устройстве»)
         # включается только при таком запуске (контракт §18): иначе утверждение
@@ -125,8 +126,17 @@ class ModelLink:
         # значения — по команде: обёрнута ли она в пустое сетевое пространство.
         self.isolated = self.argv[:2] == ["unshare", "-rn"] if isolated is None else isolated
         self.proc = subprocess.Popen(self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=subprocess.DEVNULL, close_fds=True, preexec_fn=_die_with_parent(os.getpid()))
+                                     stderr=subprocess.DEVNULL, close_fds=True,
+                                     env={} if sandboxed else None, preexec_fn=_die_with_parent(os.getpid()))
         self.dead = False
+        if sandboxed:
+            fd = self.proc.stdout.fileno()
+            with selectors.DefaultSelector() as sel:
+                sel.register(fd, selectors.EVENT_READ)
+                ready = sel.select(5) and os.read(fd, len(b"ready\n")) == b"ready\n"
+            if not ready:
+                self._die()
+                raise RuntimeError("Bubblewrap model sandbox did not start")
 
     def ask(self, question: bytes, limit: int) -> bytes | None:
         """Ответ не длиннее limit; None — модель не ответила в срок или
@@ -180,12 +190,26 @@ class ModelLink:
 
 def start_links(spec: dict | None) -> dict[int, ModelLink] | None:
     """spec — {"mode": ["--stub"], "timeout": с, "allow_net": False, "net":
-    "netns" | "probe"}; по процессу на контур. RuntimeError — исполнитель не
+    "netns" | "probe"}; интерфейс Linux также передаёт собственную команду
+    Bubblewrap в sandbox_argv. По процессу на контур. RuntimeError — исполнитель не
     может стартовать: модель без сети не запустить."""
     if not spec:
         return None
     mode, timeout = list(spec.get("mode", ["--stub"])), float(spec.get("timeout", 120.0))
     net = spec.get("net", "netns")
+    if net == "gateway":
+        from sandbox.gateway_link import GatewayLink
+        return {i: GatewayLink(conn, timeout, spec["manifest"]) for i, conn in spec["channels"].items()}
+    if net == "bwrap":
+        links = {}
+        try:
+            for i in (1, 2):
+                links[i] = ModelLink(spec["sandbox_argv"], timeout, isolated=True, sandboxed=True)
+        except (OSError, RuntimeError):
+            for link in links.values():
+                link._die()
+            raise
+        return links
     if net == "probe":
         why = probe_net()
         if why:

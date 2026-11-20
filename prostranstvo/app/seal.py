@@ -90,19 +90,22 @@ def seal(allow_unix: bool) -> None:
         raise OSError(ctypes.get_errno(), "seccomp не принял фильтр")
 
 
-def sealed_main(seal_mode: str, *args) -> None:
-    """Точка входа процесса исполнителя под печатью: печать — первым делом,
-    затем обычный `sandbox.process5._main`. seal_mode — «сомкнутый»
-    (местные каналы тоже закрыты) или «разомкнутый» (AF_UNIX открыт для
-    передатчика). Если печать не встала, процесс выходит, не начав работу:
-    ведущий увидит мёртвый исполнитель, а не песочницу без печати."""
+def sealed_main(seal_mode: str, conn, root, defects, limits, kind="5", model=None) -> None:
+    """Seal the executor before accepting commands.
+
+    Bubblewrap must configure its own network namespace before the executor
+    installs a filter that denies the socket used by that setup.
+    """
+    from sandbox.model9 import start_links
+    from sandbox.process5 import _main
+
+    links = start_links(model) if model and model.get("net") == "bwrap" else None
     try:
         seal(allow_unix=(seal_mode == "разомкнутый"))
     except OSError as e:
         sys.stderr.write(f"печать сети не встала: {e}\n")
         os._exit(3)
-    from sandbox.process5 import _main
-    _main(*args)
+    _main(conn, root, defects, limits, kind, model, model_links=links)
 
 
 _CHECK = r"""
