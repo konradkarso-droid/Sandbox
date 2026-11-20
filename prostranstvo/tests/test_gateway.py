@@ -233,3 +233,38 @@ def test_builtin_agent_reaches_provider_through_paid_cloud_profile(tmp_path, mon
         assert receipt["published"] is False
         assert list((job.root / "outbox").iterdir()) == []
         assert job.approve(receipt["id"])["bytes"] == 6
+
+
+@pytest.mark.parametrize("marker_in_response", [False, True])
+def test_astra_acceptance_checks_private_markers(tmp_path, monkeypatch, marker_in_response):
+    from app import runner, server
+    from experiments import astra_acceptance
+
+    markers = iter(("f1" * 16, "a2" * 16, "b3" * 16))
+    monkeypatch.setattr(astra_acceptance, "token_hex", lambda _: next(markers))
+    report = base64.b64encode(b"OK=3\nWAIT=2\n").decode()
+    answers = iter([
+        'FILES {"tool":"files.list"}',
+        'FILES {"tool":"files.read","id":1,"offset":0,"length":64}',
+        f'FILES {{"tool":"files.write","name":"report.txt","offset":0,"data":"{report}"}}',
+        'FILES {"tool":"files.publish","name":"report.txt"}',
+        "a2" * 16 if marker_in_response else "STOP",
+    ])
+    with provider(answers) as (url, seen):
+        monkeypatch.setitem(gateway.PROVIDERS, "openai", {"base": url, "kind": "openai"})
+        monkeypatch.setattr(astra_acceptance, "OPENAI_BASE", url)
+        monkeypatch.setattr(cloud, "OPENAI_BASE", url)
+        monkeypatch.setattr(server, "EXCHANGES", tmp_path / "exchange")
+        monkeypatch.setattr(server, "RUNS", tmp_path / "runs")
+        monkeypatch.setattr(runner, "RUNS", server.RUNS)
+        monkeypatch.setenv("OPENAI_API_KEY", "fixture-key")
+        app = server.App(0)
+        if marker_in_response:
+            with pytest.raises(ValueError, match="Обнаружена закрытая контрольная метка"):
+                astra_acceptance.run_case(app, 1)
+        else:
+            astra_acceptance.run_case(app, 1)
+        assert len(seen) == 5
+        for _, request, _ in seen:
+            question = request["messages"][0]["content"]
+            assert all(pair * 16 not in question for pair in ("f1", "a2", "b3"))
