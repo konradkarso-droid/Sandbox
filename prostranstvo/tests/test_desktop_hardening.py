@@ -134,3 +134,142 @@ def test_full_diagnostics_requires_explicit_post(tmp_path, monkeypatch):
         finally:
             httpd.shutdown()
             thread.join()
+
+
+def _compete_for_run(runs, session, words, channel):
+    with channel:
+        settings = runner.Settings(contour="сомкнутый", exchange=session, agent="test.wat", words=words)
+        run = runner.Run(settings, runner.IDLE, runs, files={})
+        channel.send("ready")
+        if channel.recv() == "start":
+            run.run()
+            channel.send((words, run.state, run.notes))
+
+
+def test_two_processes_competing_for_one_session_keep_the_winning_report(isolated_executor, tmp_path, monkeypatch):
+    import json
+    import multiprocessing as mp
+
+    from app.exchange import ExchangeJob
+
+    job = ExchangeJob.create(tmp_path / "exchange", tmp_path / "runs")
+    context = mp.get_context("spawn")
+    # The separate Rust judge has a package with the same name as the
+    # project's verifier. Start each desktop process with the project first.
+    monkeypatch.syspath_prepend(str(runner.ROOT))
+    started = []
+    try:
+        for words in ("первый прогон", "второй прогон"):
+            parent, child = context.Pipe()
+            with child:
+                process = context.Process(target=_compete_for_run,
+                                          args=(job.run.parent, job.id, words, child))
+                try:
+                    process.start()
+                except BaseException:
+                    parent.close()
+                    raise
+            started.append((process, parent))
+        for process, channel in started:
+            assert channel.poll(30) and channel.recv() == "ready", process.exitcode
+        for _, channel in started:
+            channel.send("start")
+
+        outcomes = []
+        for process, channel in started:
+            assert channel.poll(45), f"прогон не завершился, код процесса {process.exitcode}"
+            outcomes.append(channel.recv())
+            process.join(timeout=5)
+            assert process.exitcode == 0
+        winner, = [words for words, state, _ in outcomes if state == "готово"]
+        loser, = [notes for _, state, notes in outcomes if state == "ошибка"]
+        assert loser == [{"code": "run_exists"}]
+
+        report = json.loads((job.run / "itog.json").read_text())
+        assert report["state"] == "готово"
+        assert report["settings"]["words"] == winner
+    finally:
+        for process, channel in started:
+            channel.close()
+            if process.is_alive():
+                process.kill()
+            process.join()
+
+
+@pytest.mark.parametrize("redirect", [False, True])
+def test_model_list_shares_one_deadline_across_response_headers(redirect):
+    import http.server
+    import threading
+
+    from app import cloud
+
+    started = threading.Event()
+    finished = threading.Event()
+    header_count = []
+    stop = threading.Event()
+
+    class Provider(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if redirect and self.path == "/v1/models":
+                self.send_response(302)
+                self.send_header("Location", "/slow")
+                self.end_headers()
+                return
+            self.send_response_only(200)
+            self.send_header("Content-Type", "application/json")
+            self.flush_headers()
+            started.set()
+            try:
+                for count in range(40):
+                    if stop.wait(0.05):
+                        return
+                    self.wfile.write(f"X-Progress: {count}\r\n".encode())
+                    header_count.append(count)
+                finished.set()
+                self.wfile.write(b'\r\n{"data": []}')
+            except OSError:
+                pass
+
+        def log_message(self, *_):
+            pass
+
+    with http.server.ThreadingHTTPServer(("127.0.0.1", 0), Provider) as server:
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05})
+        thread.start()
+        try:
+            client = cloud.Cloud("openai", f"http://127.0.0.1:{server.server_port}/v1", "fixture")
+            with pytest.raises(cloud.CloudError, match="HTTP deadline expired"):
+                cloud.list_models(client, timeout=0.6)
+            assert started.is_set() and header_count
+            assert not finished.is_set()
+        finally:
+            stop.set()
+            server.shutdown()
+            thread.join()
+
+
+def test_http_deadline_also_bounds_waiting_for_address_lookup(monkeypatch):
+    import threading
+    import urllib.request
+
+    from app.http_body import open_response
+
+    started, release, finished = threading.Event(), threading.Event(), threading.Event()
+
+    def lookup(*_, **__):
+        started.set()
+        release.wait(timeout=3)
+        finished.set()
+        return []
+
+    monkeypatch.setattr(socket, "getaddrinfo", lookup)
+    try:
+        request = urllib.request.Request("http://127.0.0.1:8737/")
+        with pytest.raises(TimeoutError, match="deadline expired"):
+            open_response(request, time.monotonic() + 0.6, bypass_proxy=True)
+        assert started.is_set()
+        assert not finished.is_set()
+    finally:
+        release.set()
+        if started.is_set():
+            assert finished.wait(timeout=2)

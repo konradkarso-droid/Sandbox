@@ -43,7 +43,7 @@ from app.cloud import PRESETS, Cloud, CloudError, check, cloud_destination, list
 from app import model_sandbox, texts, weights, worker
 from app.exchange import ExchangeJob
 from app.gateway import PROVIDERS, select_files
-from app.http_body import reader
+from app.http_body import open_response, reader
 from env.exchange import MAX_FILE_BYTES, snapshot_inbox
 from app.runner import (AGENTS, ANSWER_MAX, EXCHANGES, MODELS, OWN_MAX, RUNS, WORDS_AGENT_READS, Refusal, Run, agent_module,
                         own_agent_check, own_agent_source, settings_from, zip_run)
@@ -262,7 +262,7 @@ class App:
             req = urllib.request.Request(url, headers={"user-agent": "prostranstvo-sandbox"})
             with tempfile.TemporaryDirectory(prefix=".gguf-", dir=MODELS) as staging:
                 target = Path(staging) / "weights.gguf"
-                with urllib.request.urlopen(req, timeout=30) as response:
+                with open_response(req, deadline, idle_timeout=30) as response:
                     length = response.headers.get("content-length")
                     if length is not None and int(length) != reference.size:
                         raise weights.IntegrityError("размер GGUF не совпадает с эталоном", "GGUF size does not match")

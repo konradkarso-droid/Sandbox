@@ -13,6 +13,7 @@ import errno
 import json
 import shutil
 import socket
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -209,11 +210,28 @@ def test_probe_and_netns_give_same_journals(tmp_path):
 
 # ---- уточнение §17: процесс модели, умерший сам
 
+@needs_unshare
 def test_self_died_model_is_learned_by_question(tmp_path):
     """Исполнитель узнаёт о смерти процесса модели только вопросом: первый
     вопрос каждого контура оплачен и записан, ответ — −7; второй — отказ
     шага 5. Журнал не зависит от того, когда процесс умер (случай судьи
     «модель умерла сама», закон «К17»)."""
+    compiler = shutil.which("clang")
+    if compiler is None:
+        pytest.skip("для теста нужен Clang со сборкой WebAssembly")
+    try:
+        probe = subprocess.run(
+            [compiler, "--target=wasm32", "-nostdlib", "-Wl,--no-entry", "-x", "c", "-",
+             "-o", str(tmp_path / "probe.wasm")],
+            input=b"int probe(void) { return 0; }",
+            capture_output=True, timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        pytest.skip(f"проверка Clang не завершилась: {exc}")
+    if probe.returncode:
+        detail = probe.stderr.decode("utf-8", "replace").strip().splitlines()
+        pytest.skip(f"Clang не собирает WebAssembly: {detail[0] if detail else probe.returncode}")
+
     case = next(c for c in H.cases_9(True, tmp_path / "сц") if c["name"] == "9: модель умерла сама")
     d = H.ExeDriver(PY_EXE, tmp_path / "исп", case["kind"], model=case["model"], model_timeout=case["timeout"])
     try:
@@ -222,5 +240,6 @@ def test_self_died_model_is_learned_by_question(tmp_path):
         r = H.one(d, case["name"], case["mods"], case["cfg"], rounds=case["rounds"], extra=case["extra"])
     finally:
         d.close()
+    assert "workdir" in r, f"исполнитель завершился до начала прогона: {d.failures or r.get('laws')}"
     assert H.check_expect(Path(r["workdir"]), case["expect"])[0] != BROKEN
     assert [k for k, (s, _) in r["laws"].items() if s == BROKEN] == []

@@ -31,7 +31,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
-from app.http_body import bounded
+from app.http_body import bounded, open_response
 
 # Готовые адреса. Имя модели человек пишет сам или берёт из списка
 # поставщика (list_models): имена моделей меняются чаще, чем этот файл.
@@ -138,16 +138,12 @@ def _human(code: int, body: str) -> str:
     return f"{what} ({code}){': ' + short if short else ''}"
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
 class CloudOutcomeUnknown(CloudError):
     """Соединение закончилось до надёжного ответа на уже начатую отправку."""
 
 
 def _request(c: Cloud, method: str, path: str, body: dict | None, timeout: float, *, one_shot: bool = False) -> dict:
+    deadline = time.monotonic() + timeout
     headers = {"content-type": "application/json", "user-agent": "prostranstvo-sandbox"}
     if c.kind == "anthropic":
         headers["anthropic-version"] = ANTHROPIC_VERSION
@@ -161,12 +157,7 @@ def _request(c: Cloud, method: str, path: str, body: dict | None, timeout: float
     # 127.0.0.1 пользователя не знает.
     scheme, host, _, _ = cloud_destination(c.base)
     local = scheme == "http" and host in LOOPBACK
-    handlers = [urllib.request.ProxyHandler({})] if local else []
-    if one_shot or c.key:
-        handlers.append(_NoRedirect())
-    opener = urllib.request.build_opener(*handlers)
-    deadline = time.monotonic() + timeout
-    with opener.open(req, timeout=timeout) as response:
+    with open_response(req, deadline, redirects=not (one_shot or c.key), bypass_proxy=local) as response:
         length = response.headers.get("content-length")
         if length is not None and int(length) > RESPONSE_LIMIT:
             raise ValueError("HTTP response exceeds its byte limit")
