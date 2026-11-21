@@ -1,0 +1,2 @@
+# PyPI artifacts for supported Linux x86_64 and aarch64 builds.
+llama-cpp-python==0.3.37 --hash=sha256:bf4108fc76e933ea4969b61b1e281a2d232dd3e43361d1fdca5e2e029d62f729

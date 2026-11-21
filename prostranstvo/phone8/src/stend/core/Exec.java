@@ -147,12 +147,17 @@ public final class Exec implements AutoCloseable {
     public static void delete(File root, File child) throws IOException {
         Path base = root.toPath().toAbsolutePath().normalize();
         Path entry = child.toPath().toAbsolutePath().normalize();
-        if (!base.equals(entry.getParent())) throw new IOException("путь вне рабочей папки: " + child);
-        try (DirectoryStream<Path> opened = Files.newDirectoryStream(base)) {
+        if (!base.equals(entry.getParent()) || base.getParent() == null) {
+            throw new IOException("путь вне рабочей папки: " + child);
+        }
+        try (DirectoryStream<Path> opened = Files.newDirectoryStream(base.getParent())) {
             if (!(opened instanceof SecureDirectoryStream)) {
                 throw new IOException("файловая система не поддерживает безопасное удаление: " + root);
             }
-            deleteEntry((SecureDirectoryStream<Path>) opened, entry.getFileName());
+            SecureDirectoryStream<Path> parent = (SecureDirectoryStream<Path>) opened;
+            try (SecureDirectoryStream<Path> dir = parent.newDirectoryStream(base.getFileName(), LinkOption.NOFOLLOW_LINKS)) {
+                deleteEntry(dir, entry.getFileName());
+            }
         }
     }
 

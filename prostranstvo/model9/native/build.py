@@ -44,17 +44,33 @@ ANDROID = {
 }
 
 
+def engine_source(path: Path, tmp: Path, *, package_version: str | None = None) -> Path:
+    """Verify the release archive and apply the upstream security backport."""
+    with path.open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    if digest != SDIST_SHA256:
+        raise ValueError(f"архив не тот: sha256 {digest}, ждали {SDIST_SHA256} ({SDIST})")
+    with tarfile.open(path) as t:
+        t.extractall(tmp, filter="data")
+    source = tmp / SDIST.removesuffix(".tar.gz")
+    subprocess.run(["patch", "--batch", "--forward", "--fuzz=0", "-p1", "-i",
+                    str(HERE / "llama-cve-2026-133710.patch")], cwd=source / "vendor" / "llama.cpp", check=True)
+    if package_version is not None:
+        init = source / "llama_cpp" / "__init__.py"
+        code = init.read_text(encoding="utf-8")
+        old = '__version__ = "0.3.37"'
+        if code.count(old) != 1:
+            raise ValueError("не найдена версия исходного пакета llama-cpp-python")
+        init.write_text(code.replace(old, f'__version__ = "{package_version}"'), encoding="utf-8")
+    return source
+
+
 def llama_src(path: Path, tmp: Path) -> Path:
     if path.is_dir():
         if not (path / "include" / "llama.h").exists():
             sys.exit(f"не исходники llama.cpp: {path}")
         return path
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    if digest != SDIST_SHA256:
-        sys.exit(f"архив не тот: sha256 {digest}, ждали {SDIST_SHA256} ({SDIST})")
-    with tarfile.open(path) as t:
-        t.extractall(tmp, filter="data")
-    return tmp / SDIST.removesuffix(".tar.gz") / "vendor" / "llama.cpp"
+    return engine_source(path, tmp) / "vendor" / "llama.cpp"
 
 
 def cmake(src: Path, build: Path, extra: list[str]) -> None:

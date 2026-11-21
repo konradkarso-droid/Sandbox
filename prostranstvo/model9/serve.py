@@ -203,6 +203,7 @@ def live(path: str):
                              "total_tokens": len(prompt_tokens) + len(completion_tokens)}}
 
     llm = Model(model_path=path, n_ctx=N_CTX, n_threads=2, seed=0, verbose=False)
+    llm.set_cache(None)
 
     def answer(q: str, limit: int) -> str:
         llm.reset()                       # без памяти между вопросами

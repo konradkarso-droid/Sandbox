@@ -1,7 +1,6 @@
 # PyPI artifacts for supported Linux x86_64 and aarch64 builds.
 diskcache==5.6.3 --hash=sha256:5e31b2d5fbad117cc363ebaf6b689474db18a1f6438bc82358b024abd4c2ca19
 jinja2==3.1.6 --hash=sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67
-llama-cpp-python==0.3.37 --hash=sha256:bf4108fc76e933ea4969b61b1e281a2d232dd3e43361d1fdca5e2e029d62f729
 markupsafe==3.0.3 --hash=sha256:0bf2a864d67e76e5c9a34dc26ec616a66b9888e25e7b9460e1c76d3293bd9dbf \
     --hash=sha256:133a43e73a802c5562be9bbcd03d090aa5a1fe899db609c29e8c8d815c5f6de6 \
     --hash=sha256:1b52b4fb9df4eb9ae465f8d0c228a00624de2334f216f178a995ccdcf82c4634 \

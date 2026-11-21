@@ -26,6 +26,7 @@ import platform
 import socket
 import subprocess
 import sys
+import tempfile
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -47,11 +48,33 @@ def venv_python() -> Path:
     return VENV / "bin" / "python3"
 
 
-def install(group: str, *args: str) -> bool:
-    requirements = HERE / "requirements" / f"{group}.txt"
-    r = subprocess.run([sys.executable, "-m", "pip", "--isolated", "install", "--disable-pip-version-check",
-                        "--require-hashes", "-r", str(requirements), *args])
+def pip(*args: str) -> bool:
+    r = subprocess.run([sys.executable, "-m", "pip", "--isolated", "--disable-pip-version-check", *args])
     return r.returncode == 0
+
+
+def install(group: str) -> bool:
+    requirements = HERE / "requirements" / f"{group}.txt"
+    return pip("install", "--require-hashes", "-r", str(requirements))
+
+
+def install_model() -> bool:
+    from app.model_sandbox import ENGINE_VERSION
+    from model9.native.build import SDIST, engine_source
+
+    if not install("model-build") or not install("model"):
+        return False
+    with tempfile.TemporaryDirectory(prefix="gguf-build-") as staging:
+        requirement = HERE / "requirements" / "model-source.txt"
+        if not pip("download", "--no-deps", "--no-build-isolation", "--require-hashes",
+                   "-r", str(requirement), "--dest", staging):
+            return False
+        try:
+            source = engine_source(Path(staging) / SDIST, Path(staging), package_version=ENGINE_VERSION)
+        except (OSError, subprocess.CalledProcessError, ValueError) as exc:
+            say(str(exc))
+            return False
+        return pip("install", "--no-deps", "--no-build-isolation", str(source))
 
 
 def installed(name: str) -> str | None:
@@ -87,8 +110,8 @@ def ensure_packages(local: bool) -> None:
     if local and not engine_available():
         say(f"Ставлю движок локальных моделей {ENGINE_VERSION}, сборка около 10 минут. / "
             f"Installing local model engine {ENGINE_VERSION}, about 10 minutes to build.")
-        say("Нужны / needs: cmake, C++ (Debian/Ubuntu: sudo apt install cmake build-essential).")
-        if not install("model-build") or not install("model", "--no-build-isolation"):
+        say("Нужны / needs: cmake, C++, patch (Debian/Ubuntu: sudo apt install cmake build-essential patch).")
+        if not install_model():
             say("Движок не встал; облачные модели работают и без него. / The engine failed to install; cloud models work without it.")
 
 
