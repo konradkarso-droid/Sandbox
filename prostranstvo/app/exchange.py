@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import secrets
 
+from app.checkpoint import NAME as CHECKPOINT, matches as matches_checkpoint
 from env.exchange import (MAX_FILE_BYTES, MAX_FILES, MAX_FILES_BYTES, ExchangeStore, digest, open_directory,
                           input_manifest, is_digest, pack_json, put_new, read_file, snapshot_inbox, valid_name)
 from verification.exchange_observer import check_files
@@ -87,21 +88,25 @@ class ExchangeJob:
         if (result.get("state") != "готово" or result.get("settings", {}).get("exchange") != self.id
                 or verdict.get("broken") != []):
             raise ValueError("выдача доступна после прогона без нарушенных законов")
-        rows, broken = read_journal(self.workdir / "journal5.jsonl")
+        original = self.workdir / "journal5.jsonl"
+        journal = self.run / CHECKPOINT if verdict.get("journal_checkpoint") is True else original
+        if journal != original and not matches_checkpoint(journal, original):
+            raise ValueError("журнал изменился после проверки прогона: не совпадает с копией хоста")
+        rows, broken = read_journal(journal)
         if broken or not rows or rows[-1]["hash"] != verdict.get("journal_tip"):
             raise ValueError(broken or "журнал изменился после проверки прогона")
         config = next((row for row in rows if row.get("kind") == "учёт"), None)
         if (not config or config.get("paid_attempts") != 1
                 or (config.get("model") == 1 and not is_digest(config.get("cloud_manifest")))):
             raise ValueError("неверный профиль прогона обмена")
-        check_files(self.workdir, config)
+        check_files(self.workdir, config, journal=journal)
         if config.get("model") == 1:
             consent = verdict.get("gateway") or {}
             if (consent.get("manifest") != config["cloud_manifest"]
                     or consent.get("provider") != config.get("cloud_provider")
                     or consent.get("model") != config.get("cloud_model")):
                 raise ValueError("итог прогона не совпал с разрешением на облако")
-            verify_gateway(self.workdir, config["cloud_provider"])
+            verify_gateway(self.workdir, config["cloud_provider"], journal=journal)
         return [row for row in rows if row.get("kind") == "инструмент" and row.get("tool") == "files.publish"]
 
     def approve(self, request_id: int) -> dict:

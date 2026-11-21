@@ -13,6 +13,7 @@ import sys
 import time
 
 from app import model_sandbox, seal
+from app.checkpoint import Checkpoint, NAME
 from sandbox.gateway_link import WIRE_LIMIT
 from sandbox.ipc import Channel
 from sandbox.process5 import Driver, MAX_MODULE, _main
@@ -98,6 +99,7 @@ def check() -> str | None:
 
 class IsolatedDriver(Driver):
     def _start(self):
+        self.checkpoint = Checkpoint(self.root.parent / NAME)
         spec = dict(self.model or {})
         channels = {i: conn.stream.fileno() for i, conn in spec.pop("channels", {}).items()}
         if channels:
@@ -109,6 +111,14 @@ class IsolatedDriver(Driver):
     def close(self):
         super().close()
         self.proc.stderr.close()
+
+    def _receive(self, deadline):
+        while True:
+            reply = self.conn.receive(deadline)
+            if not isinstance(reply, tuple) or len(reply) != 2 or reply[0] != "journal":
+                return reply
+            self.checkpoint.append(reply[1])
+            self.conn.send(("saved",), deadline)
 
 
 @lru_cache(maxsize=8)
@@ -179,4 +189,13 @@ def main(fd: int, settings: dict) -> None:
             reply = {"error": str(exc).splitlines()[0][:200]}
         channel.send(reply)
         return
+    from env.journal import Journal
+
+    def checkpoint(line):
+        deadline = time.monotonic() + START_TIMEOUT
+        channel.send(("journal", line), deadline)
+        if channel.receive(deadline) != ("saved",):
+            raise OSError("хост не сохранил запись журнала")
+
+    Journal.checkpoint = staticmethod(checkpoint)
     _main(stream, settings["root"], settings["defects"], settings["limits"], settings["kind"], model)

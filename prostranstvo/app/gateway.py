@@ -55,13 +55,15 @@ def select_files(exposed: dict, files: dict[str, bytes], cloud: dict) -> tuple[C
 
 
 class Gateway:
-    def __init__(self, cloud: Cloud, consent: Consent, workdir: Path, timeout: float, on_event=None):
+    def __init__(self, cloud: Cloud, consent: Consent, workdir: Path, timeout: float, on_event=None,
+                 *, journal: Path | None = None):
         allowed = PROVIDERS[consent.provider]
         if (cloud.base != allowed["base"] or cloud.kind != allowed["kind"] or cloud.model != consent.model
                 or not 1 <= cloud.max_tokens <= 32768):
             raise ValueError("настройки запроса не совпадают с разрешением")
         self.cloud, self.consent = cloud, consent
         self.workdir, self.timeout = workdir, timeout
+        self.journal = journal or workdir / "journal5.jsonl"
         self.receipts = workdir.parent.parent / "gateway-receipts.jsonl"
         self.expires = time.monotonic() + DEFAULT_CONSENT_SECONDS
         self.on_event = on_event or (lambda kind, **kw: None)
@@ -100,7 +102,7 @@ class Gateway:
         if (not 0 < len(question) <= QUESTION_LIMIT or type(sequence) is not int or sequence < 0
                 or type(limit) is not int or not 0 < limit <= QUESTION_LIMIT):
             raise ValueError("за пределами размера запроса или номера списания")
-        rows, broken = read_journal(self.workdir / "journal5.jsonl")
+        rows, broken = read_journal(self.journal)
         if broken or not sequence < len(rows):
             raise ValueError("списание не подтверждено журналом")
         setup = next((r for r in rows if r["kind"] == "учёт"), {})

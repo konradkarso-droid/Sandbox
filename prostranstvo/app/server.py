@@ -24,7 +24,6 @@ import hashlib
 import hmac
 import http.client
 import http.server
-import importlib.util
 import json
 import os
 import platform
@@ -98,7 +97,7 @@ class App:
             "closed_ok": self.model_sandbox_error is None and self.executor_sandbox_error is None,
             "exchange_wasm_ok": self.executor_sandbox_error is None,
             "model_sandbox_error": self.model_sandbox_error,
-            "llama": importlib.util.find_spec("llama_cpp") is not None,
+            "llama": model_sandbox.engine_available(),
             "models": [{"name": p.name, "path": str(p), "mb": round(p.stat().st_size / 2 ** 20),
                         "has_reference": self.downloads.get(p.name, {}).get("state") == "готово"} for p in files],
             "models_dir": str(MODELS),
@@ -303,11 +302,9 @@ def make_handler(app: App):
         def _json(self, obj, code: int = 200) -> None:
             self._send(code, json.dumps(obj, ensure_ascii=False, default=str).encode(), "application/json; charset=utf-8")
 
-        def _allowed(self, query: dict) -> bool:
-            if self.headers.get("Host", "") not in allowed_hosts:
-                return False
-            token = self.headers.get("X-Token") or (query.get("t") or [""])[0]
-            return hmac.compare_digest(token.encode(), app.token.encode())
+        def _allowed(self) -> bool:
+            return (self.headers.get("Host", "") in allowed_hosts
+                    and hmac.compare_digest(self.headers.get("X-Token", "").encode(), app.token.encode()))
 
         def _body(self) -> dict:
             n = int(self.headers.get("content-length") or 0)
@@ -327,14 +324,13 @@ def make_handler(app: App):
         def do_GET(self):
             u = urllib.parse.urlsplit(self.path)
             q = urllib.parse.parse_qs(u.query)
-            if not self._allowed(q):
+            if self.headers.get("Host", "") not in allowed_hosts or (u.path != "/" and not self._allowed()):
                 self._send(403, "Открой ссылку, которую напечатал start.py в терминале.\n"
                                 "Open the link that start.py printed in the terminal.".encode(),
                            "text/plain; charset=utf-8")
                 return
             if u.path == "/":
-                page = UI.read_text(encoding="utf-8").replace("__TOKEN__", app.token)
-                self._send(200, page.encode(), "text/html; charset=utf-8",
+                self._send(200, UI.read_bytes(), "text/html; charset=utf-8",
                            {"content-security-policy": "default-src 'self'; script-src 'unsafe-inline'; "
                                                        "style-src 'unsafe-inline'; img-src 'self' data:"})
             elif u.path == "/api/info":
@@ -374,7 +370,7 @@ def make_handler(app: App):
 
         def do_POST(self):
             u = urllib.parse.urlsplit(self.path)
-            if not self._allowed({}):
+            if not self._allowed():
                 self._json({"error": "нет метки"}, 403)
                 return
             try:
@@ -426,7 +422,7 @@ def make_handler(app: App):
 def serve(port: int = 8737, open_browser: bool = True) -> None:
     app = App(port)
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", port), make_handler(app))
-    url = f"http://127.0.0.1:{port}/?t={app.token}"
+    url = f"http://127.0.0.1:{port}/#t={app.token}"
     print("\nПространство — песочница для ИИ-агентов / Prostranstvo — a sandbox for AI agents")
     print(f"Экран / Screen: {url}")
     if app.agent_error:

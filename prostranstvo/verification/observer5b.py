@@ -102,7 +102,7 @@ def check(run: dict) -> dict[str, tuple[str, str]]:
     out: dict[str, tuple[str, str]] = {}
     cfg = run["cfg"]
     wd = Path(run["workdir"])
-    recs, broken = read_journal(wd / "journal5.jsonl")
+    recs, broken = read_journal(run.get("journal", wd / "journal5.jsonl"))
     dump = run.get("dump") or {"contours": {}}
     contours = {int(k): v for k, v in dump["contours"].items()}
     world = World(cfg["graph"], cfg["levels"], cfg["memory"])

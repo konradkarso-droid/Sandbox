@@ -14,17 +14,19 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
 use std::cell::RefCell;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::process::CommandExt;
-use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::mpsc::{Receiver, channel};
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::time::Duration;
 
-/// Один процесс модели и канал строк, которые читает его поток-читатель.
+const MAX_FRAME: usize = 16 * 1024;
+
+/// One model process and its bounded request/reply queues.
 struct Proc {
     child: Child,
-    stdin: ChildStdin,
-    lines: Receiver<String>,
+    requests: SyncSender<String>,
+    answers: Receiver<Vec<u8>>,
     alive: bool,
 }
 
@@ -147,22 +149,49 @@ pub fn start(mode: &str, timeout_s: f64, net: Net) -> Result<(), String> {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| format!("процесс модели не запустился: {e}"))?;
-        let stdin = child.stdin.take().ok_or("нет stdin процесса модели")?;
+        let mut stdin = child.stdin.take().ok_or("нет stdin процесса модели")?;
         let stdout = child.stdout.take().ok_or("нет stdout процесса модели")?;
-        let (tx, lines) = channel();
+        let (requests, incoming) = sync_channel::<String>(1);
+        let (outgoing, answers) = sync_channel(1);
         std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
-                if tx.send(line).is_err() {
+            let mut reader = BufReader::new(stdout);
+            while let Ok(request) = incoming.recv() {
+                if writeln!(stdin, "{request}").and_then(|_| stdin.flush()).is_err() {
+                    break;
+                }
+                let Some(line) = read_frame(&mut reader) else { break };
+                if outgoing.send(line).is_err() {
                     break;
                 }
             }
         });
-        Ok(Proc { child, stdin, lines, alive: true })
+        Ok(Proc { child, requests, answers, alive: true })
     };
-    let procs = [spawn_one()?, spawn_one()?];
+    let mut first = spawn_one()?;
+    let second = spawn_one().inspect_err(|_| kill(&mut first))?;
+    let procs = [first, second];
     POOL.with(|p| *p.borrow_mut() = Some(Pool { procs, timeout: Duration::from_secs_f64(timeout_s) }));
     Ok(())
+}
+
+fn read_frame(reader: &mut impl BufRead) -> Option<Vec<u8>> {
+    let mut frame = Vec::new();
+    reader.take((MAX_FRAME + 1) as u64).read_until(b'\n', &mut frame).ok()?;
+    (frame.len() <= MAX_FRAME && frame.last() == Some(&b'\n')).then_some(frame)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_FRAME, read_frame};
+
+    #[test]
+    fn frame_requires_newline_within_limit() {
+        let valid = vec![b'x'; MAX_FRAME - 1].into_iter().chain([b'\n']).collect::<Vec<_>>();
+        assert_eq!(read_frame(&mut valid.as_slice()), Some(valid));
+        assert!(read_frame(&mut &b"unfinished"[..]).is_none());
+        let oversized = vec![b'x'; MAX_FRAME].into_iter().chain([b'\n']).collect::<Vec<_>>();
+        assert!(read_frame(&mut oversized.as_slice()).is_none());
+    }
 }
 
 /// Процесс контура `ci` не убит исполнителем. О смерти процесса самого по себе
@@ -195,11 +224,11 @@ pub fn ask(ci: usize, question: &[u8], max: usize) -> Option<Vec<u8>> {
         if !pr.alive {
             return None;
         }
-        let req = json!({"q": STANDARD.encode(question), "max": max});
-        let sent = writeln!(pr.stdin, "{req}").and_then(|_| pr.stdin.flush());
+        let req = json!({"q": STANDARD.encode(question), "max": max}).to_string();
+        let sent = pr.requests.try_send(req);
         let answer = match sent {
-            Ok(()) => pr.lines.recv_timeout(timeout).ok().and_then(|line| {
-                let v: Value = serde_json::from_str(&line).ok()?;
+            Ok(()) => pr.answers.recv_timeout(timeout).ok().and_then(|line| {
+                let v: Value = serde_json::from_slice(&line).ok()?;
                 STANDARD.decode(v.get("a")?.as_str()?).ok()
             }),
             Err(_) => None,

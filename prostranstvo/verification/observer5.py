@@ -78,16 +78,26 @@ def read_journal(path: Path) -> tuple[list[dict], str | None]:
     recs, prev = [], "0" * 64
     for n, line in enumerate(lines):
         try:
-            rec = json.loads(line)
-        except Exception:
-            return recs, f"запись {n + 1} не читается"
+            rec = journal_record(line, n, prev)
+        except ValueError as exc:
+            return recs, str(exc)
+        recs.append(rec)
+        prev = rec["hash"]
+    return recs, None
+
+
+def journal_record(line: bytes, n: int, prev: str) -> dict:
+    try:
+        rec = json.loads(line)
+        if not isinstance(rec, dict):
+            raise ValueError
         body = {k: v for k, v in rec.items() if k != "hash"}
         h = hashlib.sha256(json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
-        if rec.get("seq") != n or rec.get("prev") != prev or rec.get("hash") != h:
-            return recs, f"цепочка разорвана на записи {n + 1}"
-        recs.append(rec)
-        prev = h
-    return recs, None
+    except (ValueError, RecursionError) as exc:
+        raise ValueError(f"запись {n + 1} не читается") from exc
+    if type(rec.get("seq")) is not int or rec["seq"] != n or rec.get("prev") != prev or rec.get("hash") != h:
+        raise ValueError(f"цепочка разорвана на записи {n + 1}")
+    return rec
 
 
 def _owned_by(obj: str, i: int) -> bool:
@@ -104,7 +114,7 @@ def check(run: dict) -> dict[str, tuple[str, str]]:
     inventory = world.INVENTORY_EXT if world else INVENTORY
     start_facts = world.initial_facts(None) if world else initial_facts(None)
     wd = Path(run["workdir"])
-    recs, broken = read_journal(wd / "journal5.jsonl")
+    recs, broken = read_journal(run.get("journal", wd / "journal5.jsonl"))
     out["И5"] = (BROKEN, broken) if broken else (HOLDS, f"{len(recs)} записей")
 
     dump = run["dump"]

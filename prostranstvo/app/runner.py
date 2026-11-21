@@ -43,6 +43,7 @@ from pathlib import Path
 
 from app import model_sandbox, texts, weights, worker
 from app.bridge import Bridge, LocalModels, question_mark
+from app.checkpoint import NAME as CHECKPOINT, matches as matches_checkpoint
 from app.cloud import Cloud, cloud_destination
 from app.exchange import valid_session
 from app.gateway import Consent, Gateway
@@ -541,7 +542,8 @@ class Run(threading.Thread):
             if self.consent.provider == "openai":
                 cloud._tokens_field = "max_completion_tokens"
                 cloud._send_temperature = False
-            self.bridge = Gateway(cloud, self.consent, root / "run00001", timeout, self._on_cloud)
+            self.bridge = Gateway(cloud, self.consent, root / "run00001", timeout, self._on_cloud,
+                                  journal=self.dir / CHECKPOINT)
             plan["net"] = "gateway"
         elif use_model and closed:
             self.bridge = LocalModels(model_sandbox.command(INSTALL_SCRIPT, script=True), timeout)
@@ -567,7 +569,7 @@ class Run(threading.Thread):
             self.driver.proc.kill()
             if self.bridge is not None:
                 self.bridge.close()
-        tail = threading.Thread(target=self._tail, args=(root / "run00001" / "journal5.jsonl",), daemon=True)
+        tail = threading.Thread(target=self._tail, args=(self.dir / CHECKPOINT,), daemon=True)
         tail.start()
         with self.lock:
             self.state = "идёт"
@@ -582,6 +584,7 @@ class Run(threading.Thread):
                 imports[i] = frozenset(inspected["imports"]) if "imports" in inspected else None
             r = run_contours(self.driver, None, "песочница", mods, cfg, rounds=1, checker=checker,
                              extra={"ext_world": W6, "expect_all": False, "module_imports": imports,
+                                    "journal": self.dir / CHECKPOINT,
                                     "gateway_provider": self.consent.provider if self.consent else None},
                              words=s.words, files=self.files)
         finally:
@@ -605,6 +608,9 @@ class Run(threading.Thread):
 
     def _finish(self, r: dict, plan: dict) -> None:
         laws = r.get("laws") or {}
+        checkpoint = self.dir / CHECKPOINT
+        if r.get("workdir") and not matches_checkpoint(checkpoint, Path(r["workdir"]) / "journal5.jsonl"):
+            laws["И5"] = (BROKEN, "журнал исполнителя не совпадает с копией, сохранённой хостом")
         groups, broken = [], []
         for g in texts.GROUPS:
             items = []
@@ -633,7 +639,7 @@ class Run(threading.Thread):
                            "outcome": [v for k, v in r.get("runs", []) if k == i]}
         journal_tip = None
         if self.files is not None and r.get("workdir"):
-            rows, problem = read_journal(Path(r["workdir"]) / "journal5.jsonl")
+            rows, problem = read_journal(checkpoint)
             if rows and not problem:
                 journal_tip = rows[-1]["hash"]
         with self.lock:
@@ -642,7 +648,7 @@ class Run(threading.Thread):
                 "laws_na": sum(x["status"] == NA for x in counted), "broken": broken, "groups": groups,
                 "audit": r.get("audit", []), "contours": contours,
                 "seal": plan.get("seal"), "net": plan.get("net"), "open": self.s.contour == "разомкнутый",
-                "workdir": r.get("workdir"), "journal_tip": journal_tip,
+                "workdir": r.get("workdir"), "journal_tip": journal_tip, "journal_checkpoint": True,
                 "gateway": asdict(self.consent) if self.consent else None,
                 "tokens": dict(self.bridge.tokens) if isinstance(self.bridge, (Bridge, Gateway)) else None}
             self.state = "готово"
@@ -656,6 +662,11 @@ class Run(threading.Thread):
         snap.pop("events", None)
         snap["complete"] = True
         snap["runtime"] = {"wasmtime": version("wasmtime")}
+        if ((snap.get("result") or {}).get("net") == "bwrap"
+                and self.s.model != INSTALL_CHECK and model_sandbox.engine_available()):
+            snap["runtime"].update(llama_cpp_python=model_sandbox.ENGINE_VERSION,
+                                   llama_cpp_revision=model_sandbox.ENGINE_SOURCE_REVISION,
+                                   llama_cpp_security_commit=model_sandbox.ENGINE_SECURITY_COMMIT)
         with self.lock:
             snap["turns"] = {i: t.turns for i, t in self.tally.items()}
         data = json.dumps(snap, ensure_ascii=False, indent=1, default=str).encode("utf-8")

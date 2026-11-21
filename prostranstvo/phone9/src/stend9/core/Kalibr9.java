@@ -548,7 +548,7 @@ public final class Kalibr9 implements Runnable {
             ui.status("К6: живой агент — «" + name + "»");
             File root = new File(dev.workDir(), "k6");
             File keep = new File(dir, "k6_" + slug(name));
-            Exec.delete(keep);
+            Exec.delete(dir, keep);
             keep.mkdirs();
             Exec ex = startExec(root, T, "6");
             Json.M row = new Json.M().with("сценарий", name);

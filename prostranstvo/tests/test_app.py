@@ -461,11 +461,12 @@ def test_screen_token_and_host(monkeypatch):
         except urllib.error.HTTPError as e:
             return e.code, e.read()
     try:
-        assert get("/")[0] == 403
         assert get("/api/info")[0] == 403
-        assert get(f"/?t={app.token}", {"Host": f"evil.example:{port}"})[0] == 403
-        code, page = get(f"/?t={app.token}")
-        assert code == 200 and app.token.encode() in page
+        assert get("/", {"Host": f"evil.example:{port}"})[0] == 403
+        assert get(f"/api/info?t={app.token}")[0] == 403
+        assert get("/api/info", {"X-Token": app.token, "Host": f"evil.example:{port}"})[0] == 403
+        code, page = get("/")
+        assert code == 200 and app.token.encode() not in page
         code, info = get("/api/info", {"X-Token": app.token})
         info = json.loads(info)
         assert code == 200 and info["seal"]["сомкнутый"] == app.executor_sandbox_error
@@ -639,9 +640,8 @@ def test_model_sandbox_hides_host_state(tmp_path):
     argv = model_sandbox.command(weights)
     network = os.readlink("/proc/self/ns/net")
     argv[-2:] = [
-        """
-import os, sys
-from importlib.metadata import version
+        model_sandbox.CONFINEMENT.format(memory=3 << 30) + """
+import os, resource, sys
 from pathlib import Path
 
 secret, journal, pid, network = sys.argv[1:]
@@ -651,6 +651,17 @@ assert not Path(secret).exists()
 assert not Path(journal).exists()
 assert not Path("/proc", pid).exists()
 assert os.readlink("/proc/self/ns/net") != network
+assert resource.getrlimit(resource.RLIMIT_AS) == (3 << 30, 3 << 30)
+assert resource.getrlimit(resource.RLIMIT_FSIZE) == (16 << 20, 16 << 20)
+try:
+    child = os.fork()
+except PermissionError:
+    pass
+else:
+    if child == 0:
+        os._exit(0)
+    os.waitpid(child, 0)
+    raise AssertionError("sandbox allowed process creation")
 assert Path("/model/weights.gguf").read_bytes() == b"GGUF"
 try:
     Path("/model/weights.gguf").write_bytes(b"changed")

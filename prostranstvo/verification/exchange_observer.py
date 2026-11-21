@@ -37,19 +37,19 @@ def check(run: dict) -> dict:
     out = answer_observer.check({**run, "ext_world": world})
     errors = []
     try:
-        check_files(Path(run["workdir"]), run["cfg"])
+        check_files(Path(run["workdir"]), run["cfg"], journal=run.get("journal"))
     except (OSError, ValueError, KeyError, TypeError) as exc:
         errors.append(str(exc))
     out[LAW] = (BROKEN, errors[0]) if errors else (HOLDS, "")
     if run["cfg"].get("model") == 1:
         provider = run.get("gateway_provider")
-        out[gateway_observer.LAW] = (gateway_observer.check(Path(run["workdir"]), provider)
+        out[gateway_observer.LAW] = (gateway_observer.check(Path(run["workdir"]), provider, journal=run.get("journal"))
                                      if provider else (BROKEN, "не объявлен адресат шлюза"))
     return out
 
 
-def check_files(workdir: Path, cfg: dict) -> None:
-    records, broken = read_journal(workdir / "journal5.jsonl")
+def check_files(workdir: Path, cfg: dict, *, journal: Path | None = None) -> None:
+    records, broken = read_journal(journal or workdir / "journal5.jsonl")
     if broken:
         raise ValueError(broken)
     store = ExchangeStore(workdir / "exchange-state", create=False)

@@ -24,6 +24,7 @@ import stend9.core.Kalibr9;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -192,7 +193,12 @@ public final class MainActivityK9 extends Activity implements Stand.Listener {
         new AlertDialog.Builder(this)
                 .setMessage("Начать калибровку сначала? Всё собранное будет стёрто. Если вы уже прислали файл в чат — можно.")
                 .setPositiveButton("Стереть и начать сначала", (d, w) -> {
-                    Exec.delete(resultsDir());
+                    try {
+                        Exec.delete(dev.workDir(), resultsDir());
+                    } catch (IOException e) {
+                        say("Не удалось удалить результаты: " + e.getMessage());
+                        return;
+                    }
                     say("Собранное стёрто. «Начать» начнёт калибровку с первого этапа.");
                     share.setEnabled(false);
                 })

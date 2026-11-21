@@ -7,7 +7,13 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.nio.file.SecureDirectoryStream;
+import java.nio.file.attribute.BasicFileAttributeView;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +31,7 @@ public final class Exec implements AutoCloseable {
     private final Process p;
     private final BufferedWriter in;
     private final BufferedReader out;
+    final File root;
     public final long pid;
 
     public Exec(String exe, File root, String kind) throws IOException {
@@ -37,9 +44,10 @@ public final class Exec implements AutoCloseable {
      * обычных (MODEL_SERVE — программа процесса модели, контракт §18.1).
      */
     public Exec(String exe, File root, String kind, List<String> extra, Map<String, String> env) throws IOException {
+        this.root = root;
         if (!root.isDirectory() && !root.mkdirs()) throw new IOException("не создать папку " + root);
         File[] old = root.listFiles();
-        if (old != null) for (File f : old) if (f.getName().startsWith("run")) delete(f);
+        if (old != null) for (File f : old) if (f.getName().startsWith("run")) delete(root, f);
         String sh = new File("/system/bin/sh").exists() ? "/system/bin/sh" : "/bin/sh";
         java.util.ArrayList<String> cmd = new java.util.ArrayList<>(Arrays.asList(sh, "-c", "echo $$; exec \"$0\" \"$@\"",
                 exe, "--root", root.getPath(), "--kind", kind));
@@ -135,10 +143,38 @@ public final class Exec implements AutoCloseable {
         }
     }
 
-    public static void delete(File f) {
-        File[] kids = f.listFiles();
-        if (kids != null) for (File k : kids) delete(k);
-        //noinspection ResultOfMethodCallIgnored
-        f.delete();
+    /** Remove a direct child of a trusted directory without opening symlinks. */
+    public static void delete(File root, File child) throws IOException {
+        Path base = root.toPath().toAbsolutePath().normalize();
+        Path entry = child.toPath().toAbsolutePath().normalize();
+        if (!base.equals(entry.getParent()) || base.getParent() == null) {
+            throw new IOException("путь вне рабочей папки: " + child);
+        }
+        try (DirectoryStream<Path> opened = Files.newDirectoryStream(base.getParent())) {
+            if (!(opened instanceof SecureDirectoryStream)) {
+                throw new IOException("файловая система не поддерживает безопасное удаление: " + root);
+            }
+            SecureDirectoryStream<Path> parent = (SecureDirectoryStream<Path>) opened;
+            try (SecureDirectoryStream<Path> dir = parent.newDirectoryStream(base.getFileName(), LinkOption.NOFOLLOW_LINKS)) {
+                deleteEntry(dir, entry.getFileName());
+            }
+        }
+    }
+
+    private static void deleteEntry(SecureDirectoryStream<Path> parent, Path name) throws IOException {
+        try {
+            BasicFileAttributeView view = parent.getFileAttributeView(
+                    name, BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+            if (view.readAttributes().isDirectory()) {
+                try (SecureDirectoryStream<Path> dir = parent.newDirectoryStream(name, LinkOption.NOFOLLOW_LINKS)) {
+                    for (Path child : dir) deleteEntry(dir, child.getFileName());
+                }
+                parent.deleteDirectory(name);
+            } else {
+                parent.deleteFile(name);
+            }
+        } catch (NoSuchFileException ignored) {
+            // The requested entry is already absent.
+        }
     }
 }

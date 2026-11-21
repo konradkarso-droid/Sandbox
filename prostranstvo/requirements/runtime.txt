@@ -1,0 +1,4 @@
+# PyPI artifacts for supported Linux x86_64 and aarch64 builds.
+wasmtime==50.0.1 --hash=sha256:675484e525c028dc02762b777f1db4477ea70caa3fec6775426daff4d64edfb1 \
+    --hash=sha256:cc14c3a17654e0394e0225b11813532ef0cd7bd1e222a0c5494cdedaabeddac4 \
+    --hash=sha256:d174cad86f66dd819b0c3a77f27e375ca1f106d3858be221ce924d57d3856050

@@ -47,6 +47,10 @@ def _read_complete_lines(path: Path) -> tuple[list[bytes], int]:
 
 
 class Journal:
+    # Set only in the isolated desktop worker. The host acknowledges each
+    # complete record before the worker may use it to authorize an action.
+    checkpoint = None
+
     def __init__(self, path: Path, records: list[dict]):
         self.path = path
         self.records = records
@@ -94,6 +98,8 @@ class Journal:
             fh.write(line)
             fh.flush()
             os.fsync(fh.fileno())
+        if self.checkpoint is not None:
+            self.checkpoint(line)
         self.records.append(rec)
         return rec
 
