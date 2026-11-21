@@ -26,6 +26,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -46,11 +47,12 @@ import java.util.zip.ZipOutputStream;
  */
 public final class MainActivityK9 extends Activity implements Stand.Listener {
     private static final int PICK = 9;
+    private static final String K5_PREFIX = "kalibr9-k5-";
 
     private AndroidDevice9 dev;
     private TextView status, progress, log;
     private ScrollView logScroll;
-    private Button start, pick, share, again;
+    private Button start, pick, share, again, repeat;
     private volatile Kalibr9 stand;
     private volatile boolean copying;
 
@@ -89,6 +91,11 @@ public final class MainActivityK9 extends Activity implements Stand.Listener {
         logScroll.addView(log);
         root.addView(logScroll, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
 
+        repeat = new Button(this);
+        repeat.setText("Повторить К5");
+        repeat.setOnClickListener(v -> onRepeatK5());
+        root.addView(repeat);
+
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
@@ -104,8 +111,8 @@ public final class MainActivityK9 extends Activity implements Stand.Listener {
         File m = dev.modelFile();
         status.setText(m.isFile() ? "Готов. Нажмите «Начать»." : "Сначала выберите файл модели кнопкой «Модель».");
         if (m.isFile()) say("Модель на месте: " + (m.length() >> 20) + " МиБ.");
-        share.setEnabled(new File(resultsDir(), "kalibr9.json").isFile());
-        if (new File(resultsDir(), "kalibr9.json").isFile()) say("Есть начатая калибровка: «Начать» продолжит её.");
+        refreshReportButtons();
+        if (reportIn(resultsDir()).isFile()) say("Сохранены результаты калибровки.");
     }
 
     private Button button(String text, View.OnClickListener l) {
@@ -125,6 +132,8 @@ public final class MainActivityK9 extends Activity implements Stand.Listener {
     @Override
     protected void onPause() {
         dev.base.foreground = false;
+        Kalibr9 running = stand;
+        if (running != null) running.movedToBackground();
         super.onPause();
     }
 
@@ -134,6 +143,30 @@ public final class MainActivityK9 extends Activity implements Stand.Listener {
 
     private File resultsDir() {
         return new File(dev.workDir(), "kalibr9");
+    }
+
+    private File reportIn(File dir) {
+        return new File(dir, "kalibr9.json");
+    }
+
+    private File latestReportDir() {
+        File latest = resultsDir();
+        long stamp = reportIn(latest).lastModified();
+        File[] repeats = dev.workDir().listFiles((dir, name) -> name.startsWith(K5_PREFIX));
+        if (repeats != null) for (File dir : repeats) {
+            long time = reportIn(dir).lastModified();
+            if (time > stamp) {
+                latest = dir;
+                stamp = time;
+            }
+        }
+        return latest;
+    }
+
+    private void refreshReportButtons() {
+        repeat.setVisibility(reportIn(resultsDir()).isFile() ? View.VISIBLE : View.GONE);
+        repeat.setEnabled(!copying && stand == null && dev.modelFile().isFile());
+        share.setEnabled(stand == null && reportIn(latestReportDir()).isFile());
     }
 
     private void say(String s) {
@@ -157,11 +190,13 @@ public final class MainActivityK9 extends Activity implements Stand.Listener {
             copying = true;
             start.setEnabled(false);
             pick.setEnabled(false);
+            refreshReportButtons();
             status.setText("Проверяю и копирую модель…");
         }, progress::setText, message -> {
             copying = false;
             start.setEnabled(true);
             pick.setEnabled(true);
+            refreshReportButtons();
             progress.setText("");
             status.setText(message);
             say(message);
@@ -179,19 +214,34 @@ public final class MainActivityK9 extends Activity implements Stand.Listener {
             return;
         }
         if (copying) return;
-        stand = new Kalibr9(dev, this, resultsDir(), new Kalibr9.Profile());
+        startRun(new Kalibr9(dev, this, resultsDir(), new Kalibr9.Profile()));
+    }
+
+    private void onRepeatK5() {
+        if (stand != null || copying) return;
+        try {
+            File output = Files.createTempDirectory(dev.workDir().toPath(), K5_PREFIX).toFile();
+            startRun(Kalibr9.repeatK5(dev, this, output, reportIn(resultsDir())));
+        } catch (IOException e) {
+            say("Не удалось создать папку повтора К5: " + e.getMessage());
+        }
+    }
+
+    private void startRun(Kalibr9 job) {
+        stand = job;
         start.setText("Остановить");
         pick.setEnabled(false);
         share.setEnabled(false);
         again.setEnabled(false);
+        repeat.setEnabled(false);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        new Thread(stand, "калибровка").start();
+        new Thread(job, "калибровка").start();
     }
 
     private void onAgain() {
         if (stand != null || copying) return;
         new AlertDialog.Builder(this)
-                .setMessage("Начать калибровку сначала? Всё собранное будет стёрто. Если вы уже прислали файл в чат — можно.")
+                .setMessage("Начать калибровку сначала? Результаты полной калибровки будут стёрты.")
                 .setPositiveButton("Стереть и начать сначала", (d, w) -> {
                     try {
                         Exec.delete(dev.workDir(), resultsDir());
@@ -200,19 +250,20 @@ public final class MainActivityK9 extends Activity implements Stand.Listener {
                         return;
                     }
                     say("Собранное стёрто. «Начать» начнёт калибровку с первого этапа.");
-                    share.setEnabled(false);
+                    refreshReportButtons();
                 })
                 .setNegativeButton("Отмена", null)
                 .show();
     }
 
     private void onShare() {
-        File dir = resultsDir();
-        if (!new File(dir, "kalibr9.json").isFile()) {
+        File dir = latestReportDir();
+        if (!reportIn(dir).isFile()) {
             say("Файла итогов ещё нет.");
             return;
         }
-        String name = "kalibr9_" + new SimpleDateFormat("yyyyMMdd_HHmm", Locale.ROOT).format(new Date()) + ".zip";
+        String prefix = dir.getName().startsWith(K5_PREFIX) ? "kalibr9_k5_" : "kalibr9_";
+        String name = prefix + new SimpleDateFormat("yyyyMMdd_HHmm", Locale.ROOT).format(new Date()) + ".zip";
         try {
             ContentValues v = new ContentValues();
             v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
@@ -274,10 +325,10 @@ public final class MainActivityK9 extends Activity implements Stand.Listener {
             start.setEnabled(true);
             pick.setEnabled(true);
             again.setEnabled(true);
-            share.setEnabled(new File(resultsDir(), "kalibr9.json").isFile());
+            refreshReportButtons();
             progress.setText("");
             say(why);
-            say("Нажмите «Поделиться» и пришлите zip в чат. Если этапы остались — «Начать» продолжит.");
+            say("Нажмите «Поделиться» и пришлите zip в чат.");
         });
     }
 }

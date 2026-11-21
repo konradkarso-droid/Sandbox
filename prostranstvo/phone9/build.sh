@@ -7,8 +7,8 @@
 #
 # Исполнитель — вторая реализация под aarch64-linux-android; программы модели
 # — model9/native/build.py android. В APK они кладутся как
-# lib/arm64-v8a/libexecutor7.so, libserve9a.so, libserve9b.so: только из
-# папки библиотек Android запускает программы приложения.
+# lib/arm64-v8a/libexecutor7.so, libserve9a.so, libserve9b.so. Исполнитель
+# запускается из папки библиотек, библиотеки модели загружает ModelService.
 #
 # Ключ подписи — вне этой папки (KS, KSPASS): ключи в архив не кладутся. Новый
 # ключ — новая подпись: поверх установки с другим ключом APK не встанет.

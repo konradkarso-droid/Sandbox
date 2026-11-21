@@ -12,8 +12,8 @@ vendor/llama.cpp, хеш архива сверяется) или уже расп
 Сервер: те же умолчания сборки, что у pip install llama-cpp-python (под этот
 процессор, с OpenMP), — иначе ответы с serve.py не совпали бы байт в байт.
 
-Телефон (NDK r27, arm64-v8a, Android 10 и новее) — по указаниям llama.cpp для
-Android: без OpenMP и без llamafile; две программы:
+Телефон (NDK r27, arm64-v8a, Android 10 и новее) — без OpenMP и без
+llamafile. Две библиотеки JNI загружаются в изолированные службы:
   serve9-android-armv8a  — переносимая, на любом arm64;
   serve9-android-armv82  — с dotprod, i8mm и fp16 (их умеют ядра Cortex-X4 и
                            A720 телефона шага); на процессоре без них падает

@@ -204,7 +204,10 @@ def main() -> None:
                           for x in res.get("прерывания", [])],
            "отказы в начале": res.get("отказы в начале", [])}
     bat = a.folder / "battery.csv"
-    out["энергия"] = energy(res, battery(bat), a.banki) if bat.exists() and "К3" in res.get("этапы", {}) else "нет данных"
+    if res.get("режим") == "только К5 по времени":
+        out["энергия"] = {"итог": "замер только по времени"}
+    else:
+        out["энергия"] = energy(res, battery(bat), a.banki) if bat.exists() and "К3" in res.get("этапы", {}) else "нет данных"
     out["К6 законы"] = laws_k6(a.folder)
     text = json.dumps(out, ensure_ascii=False, indent=1)
     if a.out:

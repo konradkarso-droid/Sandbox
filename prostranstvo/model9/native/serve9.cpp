@@ -45,6 +45,7 @@
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -561,11 +562,11 @@ struct Live {
     int n_tokens = 0;
     std::vector<llama_token> input_ids;
 
-    Live(const std::string & path, int threads, int threads_batch) {
+    Live(const std::string & path, FILE * weights, int threads, int threads_batch) {
         llama_log_set([](ggml_log_level, const char *, void *) {}, nullptr);
         llama_backend_init();
         struct stat st;
-        if (::stat(path.c_str(), &st) != 0) die("нет файла модели: " + path);
+        if (!weights && ::stat(path.c_str(), &st) != 0) die("нет файла модели: " + path);
 
         llama_model_params mp = llama_model_default_params();
         mp.n_gpu_layers = 0;
@@ -576,7 +577,8 @@ struct Live {
         // Без перекладки весов под процессор — почему, сказано в serve.py
         // (live): два процесса модели делят один файл весов.
         mp.use_extra_bufts = false;
-        model = llama_model_load_from_file(path.c_str(), mp);
+        model = weights ? llama_model_load_from_file_ptr(weights, mp)
+                        : llama_model_load_from_file(path.c_str(), mp);
         if (!model) die("модель не загрузилась: " + path);
         vocab = llama_model_get_vocab(model);
 
@@ -615,6 +617,13 @@ struct Live {
         if (!t) die("в модели нет шаблона беседы");
         tmpl = t;
         recurrent = llama_model_is_recurrent(model) || llama_model_is_hybrid(model);
+    }
+
+    ~Live() {
+        llama_batch_free(batch);
+        llama_free(ctx);
+        llama_model_free(model);
+        llama_backend_free();
     }
 
     // Шаблон беседы. llama-cpp-python оформляет вопрос шаблоном из файла модели
@@ -832,10 +841,10 @@ std::string probe_net() {
 
 // ---------------------------------------------------------------- обмен
 
-void write_all(const std::string & s) {
+void write_all(int fd, const std::string & s) {
     size_t off = 0;
     while (off < s.size()) {
-        const ssize_t w = ::write(1, s.data() + off, s.size() - off);
+        const ssize_t w = ::write(fd, s.data() + off, s.size() - off);
         if (w < 0 && errno == EINTR) continue;
         if (w <= 0) die("канал ответа закрыт");
         off += (size_t) w;
@@ -855,14 +864,13 @@ int to_threads(const char * s) {
 
 }  // namespace
 
-int main(int argc, char ** argv) {
+static int run_model(const std::vector<std::string> & args, int input, int output, FILE * weights = nullptr) {
     // Закрытый канал ответа — ошибка записи и выход с кодом 1, а не смерть от
     // сигнала: так ведёт себя Python.
     std::signal(SIGPIPE, SIG_IGN);
 
-    const std::vector<std::string> args(argv + 1, argv + argc);
     if (args.size() == 1 && args[0] == "--probe-net") {
-        write_all(probe_net() + "\n");
+        write_all(output, probe_net() + "\n");
         return 0;
     }
 
@@ -887,7 +895,7 @@ int main(int argc, char ** argv) {
             else if (args[k] == "--threads-batch") threads_batch = to_threads(args[k + 1].c_str());
             else usage();
         }
-        live = new Live(args[1], threads, threads_batch);
+        live = new Live(args[1], weights, threads, threads_batch);
     } else {
         usage();
     }
@@ -895,18 +903,21 @@ int main(int argc, char ** argv) {
     // Строки входа — как у Python `for line in sys.stdin.buffer`: каждая
     // разбирается, как только пришла; последняя может быть без перевода строки.
     std::string buf;
-    char chunk[65536];
+    constexpr size_t max_frame = 16 * 1024;
+    char chunk[8192];
     bool eof = false;
     while (!eof || !buf.empty()) {
         size_t nl = buf.find('\n');
         if (nl == std::string::npos && !eof) {
-            const ssize_t r = ::read(0, chunk, sizeof chunk);
+            if (buf.size() >= max_frame) die("слишком длинный запрос");
+            const ssize_t r = ::read(input, chunk, sizeof chunk);
             if (r < 0 && errno == EINTR) continue;
             if (r <= 0) eof = true;
             else buf.append(chunk, (size_t) r);
             continue;
         }
         const size_t end = nl == std::string::npos ? buf.size() : nl + 1;
+        if (end > max_frame) die("слишком длинный запрос");
         const std::string line = buf.substr(0, end);
         buf.erase(0, end);
 
@@ -924,7 +935,54 @@ int main(int argc, char ** argv) {
         if (mode == STUB) a = stub(q, limit);
         else if (mode == SCRIPT) a = script->answer(q);
         else a = live->answer(q, limit);
-        write_all("{\"a\": \"" + b64encode(a) + "\"}\n");
+        write_all(output, "{\"a\": \"" + b64encode(a) + "\"}\n");
     }
+    delete live;
+    delete script;
     return 0;
 }
+
+#ifdef __ANDROID__
+#include <jni.h>
+
+extern "C" JNIEXPORT jint JNICALL Java_stend_android_ModelService_runModel(
+        JNIEnv *, jclass, jint mode, jint input, jint output, jint fd, jint threads, jint batch) {
+    if (mode == 0) return run_model({"--stub"}, input, output);
+    if (mode == 1) return run_model({"--probe-net"}, input, output);
+    if (mode != 2 || fd < 0) return 2;
+    for (int family : {AF_INET, AF_INET6}) {
+        for (int type : {SOCK_STREAM, SOCK_DGRAM}) {
+            const int network = ::socket(family, type | SOCK_CLOEXEC, 0);
+            if (network >= 0) {
+                ::close(network);
+                return 2;
+            }
+            if (errno != EPERM && errno != EACCES) return 2;
+        }
+    }
+    struct stat info;
+    if (::fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) || info.st_size <= 0 ||
+        ::fcntl(fd, F_GETFL) < 0 || (::fcntl(fd, F_GETFL) & O_ACCMODE) != O_RDONLY) return 2;
+    const rlim_t memory = (3ULL << 30) + 2 * (rlim_t) info.st_size;
+    const rlimit data_limit{memory, memory};
+    const rlimit task_limit{64, 64};
+    const rlimit core_limit{0, 0};
+    if (::setrlimit(RLIMIT_DATA, &data_limit) != 0 || ::setrlimit(RLIMIT_NPROC, &task_limit) != 0 ||
+        ::setrlimit(RLIMIT_CORE, &core_limit) != 0) return 2;
+    int weight_copy = ::fcntl(fd, F_DUPFD_CLOEXEC, 0);
+    if (weight_copy < 0) return 2;
+    FILE * weights = ::fdopen(weight_copy, "rb");
+    if (!weights) {
+        ::close(weight_copy);
+        return 2;
+    }
+    const int result = run_model({"--gguf", "GGUF", "--threads", std::to_string(threads),
+                                  "--threads-batch", std::to_string(batch)}, input, output, weights);
+    ::fclose(weights);
+    return result;
+}
+#else
+int main(int argc, char ** argv) {
+    return run_model(std::vector<std::string>(argv + 1, argv + argc), STDIN_FILENO, STDOUT_FILENO);
+}
+#endif

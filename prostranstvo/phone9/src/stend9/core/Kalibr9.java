@@ -49,6 +49,7 @@ import java.util.concurrent.TimeUnit;
  * которые он кладёт в папку итогов.
  */
 public final class Kalibr9 implements Runnable {
+    private static final String K5_TIMING_MODE = "только К5 по времени";
     static final double Z = 1.5;
     /** Предел₁ — работа среды без модели: 155 мс старого телефона × 10, не мерено на этом (§17). */
     static final double LIMIT1_S = 1.55;
@@ -88,8 +89,9 @@ public final class Kalibr9 implements Runnable {
     private final Stand.Listener ui;
     private final File dir;
     private final Profile prof;
+    private final File k5Baseline;
     private Json.M res = new Json.M();
-    private volatile boolean stopPressed;
+    private volatile String stopReason;
     private volatile String watchdogFired;
     private volatile Exec current;
     private final List<Process> direct = Collections.synchronizedList(new ArrayList<Process>());
@@ -97,10 +99,22 @@ public final class Kalibr9 implements Runnable {
 
     /** dir — папка итогов: kalibr9.json, battery.csv и файлы живого агента. */
     public Kalibr9(Device9 dev, Stand.Listener ui, File dir, Profile prof) {
+        this(dev, ui, dir, prof, null);
+    }
+
+    private Kalibr9(Device9 dev, Stand.Listener ui, File dir, Profile prof, File k5Baseline) {
         this.dev = dev;
         this.ui = ui;
         this.dir = dir;
         this.prof = prof;
+        this.k5Baseline = k5Baseline;
+    }
+
+    /** Run К5 in a fresh report directory using the completed stages of a previous calibration. */
+    public static Kalibr9 repeatK5(Device9 dev, Stand.Listener ui, File dir, File baseline) {
+        Profile prof = new Profile();
+        prof.lastStage = "К5";
+        return new Kalibr9(dev, ui, dir, prof, baseline);
     }
 
     /**
@@ -111,7 +125,16 @@ public final class Kalibr9 implements Runnable {
      * нажимается в потоке экрана.
      */
     public void requestStop() {
-        stopPressed = true;
+        stop("Остановлено вами");
+    }
+
+    public void movedToBackground() {
+        if (k5Baseline != null) stop("К5 прерван: приложение было свёрнуто. Для замера держите стенд на экране.");
+    }
+
+    private synchronized void stop(String reason) {
+        if (stopReason != null) return;
+        stopReason = reason;
         Thread t = new Thread(this::killAll, "остановка");
         t.setDaemon(true);
         t.start();
@@ -132,13 +155,14 @@ public final class Kalibr9 implements Runnable {
     @Override
     @SuppressWarnings("unchecked")
     public void run() {
-        String why = "Готово: все этапы пройдены.";
+        String why = k5Baseline == null ? "Готово: все этапы пройдены." : "Повтор К5 завершён.";
         dir.mkdirs();
         Thread watch = new Thread(this::watchdog, "сторож и батарея");
         watch.setDaemon(true);
         try {
             qs = questions();
             resume();
+            checkStop();
             phaseInfo();
             watch.start();
             for (String st : STAGES) {
@@ -166,6 +190,7 @@ public final class Kalibr9 implements Runnable {
             }
         } catch (Stopped s) {
             why = s.getMessage();
+            if (k5Baseline != null) res.with("остановлен", why);
         } catch (Exception e) {
             why = "Сбой стенда: " + e;
             res.with("сбой", String.valueOf(e));
@@ -181,19 +206,48 @@ public final class Kalibr9 implements Runnable {
     }
 
     @SuppressWarnings("unchecked")
-    private void resume() throws IOException {
-        File f = resultFile();
-        if (!f.isFile()) return;
+    private void resume() throws IOException, Stopped {
+        File f = k5Baseline == null ? resultFile() : k5Baseline;
+        if (!f.isFile()) {
+            if (k5Baseline != null) throw new Stopped("Для повтора К5 нужны сохранённые этапы К1–К4.");
+            return;
+        }
         Object o = Json.parse(new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8));
-        if (!(o instanceof Map)) return;
-        Json.M old = new Json.M();
-        old.putAll((Map<String, Object>) o);
-        res = old;
+        if (!(o instanceof Map)) {
+            if (k5Baseline != null) throw new Stopped("Файл исходной калибровки не читается.");
+            return;
+        }
+        Map<String, Object> old = (Map<String, Object>) o;
+        if (k5Baseline == null) res.putAll(old);
+        else loadK5Baseline(old);
         res.remove("вердикты");
         res.remove("сбой");
         List<Object> starts = (List<Object>) res.get("запуски");
         if (starts == null) res.with("запуски", starts = new ArrayList<>());
         starts.add(System.currentTimeMillis());
+    }
+
+    private void loadK5Baseline(Map<String, Object> old) throws Stopped {
+        Object storedStages = old.get("этапы"), model = old.get("модель"), settings = old.get("настройки");
+        if (!(storedStages instanceof Map) || !(model instanceof Map) || !(settings instanceof Map)) {
+            throw new Stopped("Для повтора К5 нужны сохранённые этапы К1–К4 и проверенная модель.");
+        }
+        Object digest = ((Map<?, ?>) model).get("sha256");
+        Object budget = ((Map<?, ?>) settings).get("бюджет");
+        if (!(digest instanceof String) || !((String) digest).matches("[a-f0-9]{64}")) {
+            throw new Stopped("В исходном отчёте нет контрольной суммы модели.");
+        }
+        if (!(budget instanceof Number) || ((Number) budget).doubleValue() != prof.budget) {
+            throw new Stopped("Бюджет исходной калибровки отличается от настроек К5.");
+        }
+        Json.M preserved = new Json.M();
+        for (String name : STAGES) {
+            if (name.equals("К5")) break;
+            Object prior = ((Map<?, ?>) storedStages).get(name);
+            if (!completed(prior)) throw new Stopped("Для повтора К5 нужен завершённый этап " + name + ".");
+            preserved.with(name, prior);
+        }
+        res.with("режим", K5_TIMING_MODE).with("модель", model).with("этапы", preserved);
     }
 
     @SuppressWarnings("unchecked")
@@ -215,10 +269,12 @@ public final class Kalibr9 implements Runnable {
         return (List<Object>) s;
     }
 
-    @SuppressWarnings("unchecked")
     private boolean done(String st) {
-        Object s = stages().get(st);
-        return s instanceof Map && ((Map<String, Object>) s).get("закончен") != null;
+        return completed(stages().get(st));
+    }
+
+    private static boolean completed(Object s) {
+        return s instanceof Map && ((Map<?, ?>) s).get("закончен") != null;
     }
 
     @SuppressWarnings("unchecked")
@@ -408,7 +464,7 @@ public final class Kalibr9 implements Runnable {
         int T = ((Number) k4.get("срок T, с")).intValue();
         double limit2 = ((Number) k4.get("предел₂, с")).doubleValue();
         int[] sizes = {4096, 256};
-        File root = new File(dev.workDir(), "k5");
+        File root = new File(dev.workDir(), k5Baseline == null ? "k5" : "k5-repeat");
         Exec ex = startExec(root, T, "5б");
         File journal = null;
         List<Json.M> runs = new ArrayList<>();
@@ -751,13 +807,7 @@ public final class Kalibr9 implements Runnable {
     }
 
     private Exec startExec(File root, int T, String kind) throws IOException, Stopped {
-        int[] p = pairOf();
-        String serve = serveOf();
-        List<String> args = Arrays.asList("--model=--gguf " + dev.modelFile().getPath() + " --threads " + p[0]
-                + " --threads-batch " + p[1], "--model-timeout=" + T, "--model-net=probe");
-        Map<String, String> env = new HashMap<>(dev.extraEnv());
-        env.put("MODEL_SERVE", serve);
-        Exec ex = new Exec(dev.exe(), root, kind, args, env);
+        Exec ex = dev.startModelExecutor(root, kind, serveOf(), T, pairOf());
         current = ex;
         return ex;
     }
@@ -785,12 +835,8 @@ public final class Kalibr9 implements Runnable {
                 cmd.add(s.dev.modelFile().getPath());
                 if (pair != null) cmd.addAll(Arrays.asList("--threads", "" + pair[0], "--threads-batch", "" + pair[1]));
             }
-            ProcessBuilder pb = new ProcessBuilder(cmd)
-                    .redirectError(ProcessBuilder.Redirect.appendTo(new File(s.dev.workDir(), "serve_stderr.txt")));
-            pb.environment().putAll(s.dev.extraEnv());
-            s.dev.workDir().mkdirs();
             try {
-                p = pb.start();
+                p = s.dev.startModel(cmd);
             } catch (IOException e) {
                 throw new Stopped("Программа модели не запустилась: " + e.getMessage());
             }
@@ -848,7 +894,7 @@ public final class Kalibr9 implements Runnable {
             try {
                 while (t.isAlive() && System.currentTimeMillis() < end) {
                     t.join(200);
-                    if (s.stopPressed || s.watchdogFired != null) {
+                    if (s.stopReason != null || s.watchdogFired != null) {
                         p.destroyForcibly();
                         s.checkStop();
                     }
@@ -870,12 +916,15 @@ public final class Kalibr9 implements Runnable {
             } catch (IOException ignored) {
             }
             try {
-                if (!p.waitFor(10, TimeUnit.SECONDS)) p.destroyForcibly();
-                p.waitFor();
+                if (!p.waitFor(10, TimeUnit.SECONDS)) {
+                    p.destroyForcibly();
+                    p.waitFor(3, TimeUnit.SECONDS);
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 p.destroyForcibly();
             } finally {
+                try { outR.close(); } catch (IOException ignored) {}
                 s.direct.remove(p);
             }
         }
@@ -1061,7 +1110,7 @@ public final class Kalibr9 implements Runnable {
 
     private void checkStop() throws Stopped {
         if (watchdogFired != null) throw new Stopped("Прерван сторожем: " + watchdogFired);
-        if (stopPressed) throw new Stopped("Остановлено вами");
+        if (stopReason != null) throw new Stopped(stopReason);
     }
 
     /**

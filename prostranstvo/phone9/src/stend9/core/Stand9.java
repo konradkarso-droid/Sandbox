@@ -19,7 +19,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -275,6 +274,8 @@ public final class Stand9 implements Runnable {
             List<Json.M> kj = new ArrayList<>();
             for (long k : kids) kj.add(new Json.M().with("pid", k).with("программа", Proc.program(k)));
             r.with("процессы модели после new", kj).with("всех потомков исполнителя", Proc.descendants(ex.pid).size());
+            int isolated = ex.isolatedModelsAlive();
+            if (isolated >= 0) r.with("изолированных служб модели после new", isolated);
             sampler.start();
             byte[] prog = dev.asset("w9/model20.wasm");
             ex.load(1, prog);
@@ -291,8 +292,11 @@ public final class Stand9 implements Runnable {
                     v = "сбой: " + e;
                 }
                 fg &= dev.foreground();
-                int alive = 0;
-                for (long k : kids) if (Proc.alive(k)) alive++;
+                int alive = ex.isolatedModelsAlive();
+                if (alive < 0) {
+                    alive = 0;
+                    for (long k : kids) if (Proc.alive(k)) alive++;
+                }
                 runs.add(new Json.M().with("контур", c).with("секунд", sec(dev.nanoTime() - t0)).with("итог run", v)
                         .with("живых процессов модели после", alive));
                 ui.log("Контур " + c + ": " + sec(dev.nanoTime() - t0) + " с; живых процессов модели — " + alive);
@@ -302,7 +306,12 @@ public final class Stand9 implements Runnable {
             r.with("журнал", journal(new File(wd, "journal5.jsonl")));
         } finally {
             sampler.stop();
-            r.with("память", sampler.result());
+            Json.M memory = sampler.result();
+            if (ex.isolatedModelsAlive() >= 0) {
+                memory.with("сумма PSS процессов модели, наибольшая, МиБ", null)
+                        .with("память модели", "Android ограничивает чтение /proc другого UID");
+            }
+            r.with("память", memory);
             if (!fg) r.with("свёрнут", true);
             current = null;
             ex.close();
@@ -340,12 +349,18 @@ public final class Stand9 implements Runnable {
             for (int i = 0; i < kids.size(); i++) busy = Math.max(busy, Proc.cpuMs(kids.get(i)) - cpu0[i]);
             kids = Proc.descendants(ex.pid);
             r.with("потомков исполнителя перед убийством", kids.size()).with("работа модели до убийства, с процессора", busy / 1000.0);
+            if (ex.isolatedModelsAlive() >= 0) {
+                r.with("работа модели до убийства, с процессора", null)
+                        .with("был запрос в обработке службой", ex.isolatedModelBusy());
+            }
             ex.kill();
             Thread.sleep(DEATH_WAIT_MS);
             List<Long> left = new ArrayList<>();
             for (long k : kids) if (Proc.alive(k)) left.add(k);
-            r.with("живых через 2 с", left.size());
-            ui.log("Исполнитель убит; живых процессов модели через 2 с — " + left.size());
+            int isolated = ex.isolatedModelsAlive();
+            int alive = isolated >= 0 ? isolated : left.size();
+            r.with("живых через 2 с", alive);
+            ui.log("Исполнитель убит; живых процессов модели через 2 с — " + alive);
             Proc.kill(left);
             current = null;
             ex.close();
@@ -369,8 +384,9 @@ public final class Stand9 implements Runnable {
         v.with("В3 сети нет", n == null ? "не проверено" : Boolean.TRUE.equals(n.get("сети нет"))
                 && ("EACCES".equals(n.get("отказ")) || "EPERM".equals(n.get("отказ"))) ? "да: " + n.get("отказ") : "нет");
         Json.M m = (Json.M) res.get("4. главный прогон");
+        String topology = dev.isPhone() ? "В1 модель — изолированная служба" : "В1 модель — ребёнок исполнителя";
         if (m == null || m.get("журнал") == null) {
-            v.with("В1 модель — ребёнок исполнителя", "не проверено").with("В2 40 вопросов без −7", "не проверено")
+            v.with(topology, "не проверено").with("В2 40 вопросов без −7", "не проверено")
                     .with("В7 те же байты", "не проверено").with("В4 память", "не проверено");
         } else {
             List<Json.M> kids = (List<Json.M>) m.get("процессы модели после new");
@@ -378,7 +394,9 @@ public final class Stand9 implements Runnable {
             boolean b1 = kids != null && kids.size() == 2;
             if (b1) for (Json.M k : kids) b1 &= serve != null && serve.equals(k.get("программа"));
             b1 &= Integer.valueOf(2).equals(m.get("всех потомков исполнителя"));
-            v.with("В1 модель — ребёнок исполнителя", b1 ? "да" : "нет");
+            boolean isolated = m.get("изолированных служб модели после new") != null;
+            if (isolated) b1 = Integer.valueOf(2).equals(m.get("изолированных служб модели после new"));
+            v.with(topology, b1 ? "да" : "нет");
             Json.M j = (Json.M) m.get("журнал");
             boolean alive = true;
             for (Json.M rr : (List<Json.M>) m.get("запуски")) alive &= ((Number) rr.get("живых процессов модели после")).intValue() == 2;
@@ -386,13 +404,15 @@ public final class Stand9 implements Runnable {
             v.with("В2 40 вопросов без −7", b2 ? "да" : "нет");
             v.with("В7 те же байты", Boolean.TRUE.equals(j.get("повтор в процессе — те же байты"))
                     && Boolean.TRUE.equals(j.get("другой процесс — те же байты")) ? "да" : "нет");
-            v.with("В4 память", b2 ? "да, числа — в «4. главный прогон» / «память»" : "нет");
+            v.with("В4 память", isolated ? "измеряется память исполнителя, память служб через /proc недоступна"
+                    : b2 ? "да, числа — в «4. главный прогон» / «память»" : "нет");
         }
         Json.M d = (Json.M) res.get("5. смерть с исполнителем");
         // Убийство, когда модель не считала, проверяет не то: молчащий процесс
         // умер бы и без правила, по концу входа (урок 31).
         boolean busy = d != null && d.get("работа модели до убийства, с процессора") instanceof Number
                 && ((Number) d.get("работа модели до убийства, с процессора")).doubleValue() > 0;
+        busy |= d != null && Boolean.TRUE.equals(d.get("был запрос в обработке службой"));
         v.with("В5 модель умирает с исполнителем", d == null || d.get("живых через 2 с") == null ? "не проверено"
                 : !busy ? "не проверено: модель не считала в момент убийства"
                 : ((Number) d.get("живых через 2 с")).intValue() == 0 ? "да" : "нет");
@@ -441,11 +461,7 @@ public final class Stand9 implements Runnable {
     // ---------------------------------------------------------------- исполнитель и программы модели
 
     private Exec startExec(File root, String serve) throws IOException {
-        List<String> args = Arrays.asList("--model=--gguf " + dev.modelFile().getPath(), "--model-timeout=" + TIMEOUT_S,
-                "--model-net=probe");
-        Map<String, String> env = new HashMap<>(dev.extraEnv());
-        env.put("MODEL_SERVE", serve);
-        Exec ex = new Exec(dev.exe(), root, "5б", args, env);
+        Exec ex = dev.startModelExecutor(root, "5б", serve, TIMEOUT_S, null);
         current = ex;
         return ex;
     }
@@ -469,10 +485,7 @@ public final class Stand9 implements Runnable {
             List<String> cmd = new ArrayList<>();
             cmd.add(exe);
             cmd.addAll(args);
-            ProcessBuilder pb = new ProcessBuilder(cmd).redirectError(ProcessBuilder.Redirect.appendTo(new File(s.dev.workDir(), "serve_stderr.txt")));
-            pb.environment().putAll(s.dev.extraEnv());
-            s.dev.workDir().mkdirs();
-            p = pb.start();
+            p = s.dev.startModel(cmd);
             s.direct.add(p);
             pid = pidOf(p);
             in = p.getOutputStream();
@@ -529,13 +542,17 @@ public final class Stand9 implements Runnable {
             } catch (IOException ignored) {
             }
             try {
-                if (!p.waitFor(timeoutS, TimeUnit.SECONDS)) p.destroyForcibly();
-                return p.waitFor();
+                if (!p.waitFor(timeoutS, TimeUnit.SECONDS)) {
+                    p.destroyForcibly();
+                    if (!p.waitFor(3, TimeUnit.SECONDS)) return -1;
+                }
+                return p.exitValue();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 p.destroyForcibly();
                 return -1;
             } finally {
+                try { outR.close(); } catch (IOException ignored) {}
                 s.direct.remove(p);
             }
         }

@@ -37,6 +37,8 @@ struct Pool {
 
 thread_local! {
     static POOL: RefCell<Option<Pool>> = const { RefCell::new(None) };
+    #[cfg(target_os = "android")]
+    static ANDROID_MODELS: RefCell<Option<[bool; 2]>> = const { RefCell::new(None) };
 }
 
 /// Способ обеспечить «без сети» (§18.1).
@@ -44,6 +46,8 @@ thread_local! {
 pub enum Net {
     Netns,
     Probe,
+    #[cfg(target_os = "android")]
+    IsolatedService,
 }
 
 unsafe extern "C" {
@@ -104,6 +108,10 @@ fn die_with_parent(parent: i32) -> std::io::Result<()> {
 
 /// Подключена ли модель при запуске исполнителя.
 pub fn connected() -> bool {
+    #[cfg(target_os = "android")]
+    if ANDROID_MODELS.with(|models| models.borrow().is_some()) {
+        return true;
+    }
     POOL.with(|p| p.borrow().is_some())
 }
 
@@ -111,12 +119,18 @@ pub fn connected() -> bool {
 /// «--script ФАЙЛ»), он делится по пробелам, поэтому пути с пробелами не
 /// поддержаны. `Err` — причина, по которой исполнитель не может стартовать.
 pub fn start(mode: &str, timeout_s: f64, net: Net) -> Result<(), String> {
+    if !timeout_s.is_finite() || timeout_s <= 0.0 {
+        return Err("--model-timeout: положительное число секунд".into());
+    }
+    #[cfg(target_os = "android")]
+    if net == Net::IsolatedService {
+        if mode != "android" { return Err("неверный режим службы Android".into()); }
+        ANDROID_MODELS.with(|models| *models.borrow_mut() = Some([true; 2]));
+        return Ok(());
+    }
     let serve = std::env::var("MODEL_SERVE").map_err(|_| "--model задан, а переменной MODEL_SERVE нет".to_string())?;
     if !std::path::Path::new(&serve).is_file() {
         return Err(format!("MODEL_SERVE: файла нет ({serve})"));
-    }
-    if !timeout_s.is_finite() || timeout_s <= 0.0 {
-        return Err("--model-timeout: положительное число секунд".into());
     }
     // Проверка заранее: иначе неработающий `unshare` или сеть, которая есть,
     // выглядели бы как «модель молчит», и первый же вопрос стоил бы бюджета.
@@ -128,6 +142,8 @@ pub fn start(mode: &str, timeout_s: f64, net: Net) -> Result<(), String> {
             }
         }
         Net::Probe => probe_no_network()?,
+        #[cfg(target_os = "android")]
+        Net::IsolatedService => unreachable!(),
     }
     let spawn_one = || -> Result<Proc, String> {
         let mut cmd = match net {
@@ -137,6 +153,8 @@ pub fn start(mode: &str, timeout_s: f64, net: Net) -> Result<(), String> {
                 c
             }
             Net::Probe => Command::new(&serve),
+            #[cfg(target_os = "android")]
+            Net::IsolatedService => unreachable!(),
         };
         let parent = std::process::id() as i32;
         // SAFETY: в дочернем процессе между fork и exec вызываются только
@@ -198,6 +216,10 @@ mod tests {
 /// исполнитель узнаёт только вопросом (§17, уточнение шага 9б): иначе журнал
 /// зависел бы от того, успел ли процесс умереть. Убитым он остаётся навсегда.
 pub fn alive(ci: usize) -> bool {
+    #[cfg(target_os = "android")]
+    if let Some(alive) = ANDROID_MODELS.with(|models| models.borrow().map(|alive| alive[ci])) {
+        return alive;
+    }
     POOL.with(|p| {
         let mut p = p.borrow_mut();
         let Some(pool) = p.as_mut() else { return false };
@@ -216,6 +238,17 @@ fn kill(pr: &mut Proc) {
 /// умер или ответил не по протоколу; процесс в этом случае убит. Ответ не
 /// обрезается: длину ограничивает вызывающий.
 pub fn ask(ci: usize, question: &[u8], max: usize) -> Option<Vec<u8>> {
+    #[cfg(target_os = "android")]
+    if let Some(result) = ANDROID_MODELS.with(|models| {
+        models.borrow_mut().as_mut().map(|models| {
+            if !models[ci] { return None; }
+            let answer = ask_android(ci, question, max);
+            models[ci] = answer.is_some();
+            answer
+        })
+    }) {
+        return result;
+    }
     POOL.with(|p| {
         let mut p = p.borrow_mut();
         let pool = p.as_mut()?;
@@ -238,4 +271,13 @@ pub fn ask(ci: usize, question: &[u8], max: usize) -> Option<Vec<u8>> {
         }
         answer
     })
+}
+
+#[cfg(target_os = "android")]
+fn ask_android(ci: usize, question: &[u8], max: usize) -> Option<Vec<u8>> {
+    let request = json!({"model": ci + 1, "q": STANDARD.encode(question), "max": max});
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "{request}").and_then(|_| out.flush()).ok()?;
+    let answer: Value = serde_json::from_slice(&read_frame(&mut std::io::stdin().lock())?).ok()?;
+    STANDARD.decode(answer.get("a")?.as_str()?).ok()
 }
