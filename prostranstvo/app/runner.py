@@ -662,6 +662,11 @@ class Run(threading.Thread):
         snap.pop("events", None)
         snap["complete"] = True
         snap["runtime"] = {"wasmtime": version("wasmtime")}
+        if ((snap.get("result") or {}).get("net") == "bwrap"
+                and self.s.model != INSTALL_CHECK and model_sandbox.engine_available()):
+            snap["runtime"].update(llama_cpp_python=model_sandbox.ENGINE_VERSION,
+                                   llama_cpp_revision=model_sandbox.ENGINE_SOURCE_REVISION,
+                                   llama_cpp_security_commit=model_sandbox.ENGINE_SECURITY_COMMIT)
         with self.lock:
             snap["turns"] = {i: t.turns for i, t in self.tally.items()}
         data = json.dumps(snap, ensure_ascii=False, indent=1, default=str).encode("utf-8")

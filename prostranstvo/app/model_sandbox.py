@@ -14,6 +14,8 @@ import sysconfig
 SERVE = Path(__file__).resolve().parents[1] / "model9" / "serve.py"
 SEAL = Path(__file__).resolve().with_name("seal.py")
 ENGINE_VERSION = "0.3.37+prostranstvo.1"
+ENGINE_SOURCE_REVISION = "a956a852c9c8bc1fb07206364838ddef299178c0"
+ENGINE_SECURITY_COMMIT = "50518b64c6f2191a116d2760042f106c4b3387d7"
 SYSTEM_LIBS = ("/usr/lib", "/usr/lib64", "/lib", "/lib64", "/lib32")
 CONFINEMENT = """
 import os, resource, runpy

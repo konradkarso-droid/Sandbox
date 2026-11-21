@@ -640,9 +640,8 @@ def test_model_sandbox_hides_host_state(tmp_path):
     argv = model_sandbox.command(weights)
     network = os.readlink("/proc/self/ns/net")
     argv[-2:] = [
-        """
-import os, sys
-from importlib.metadata import version
+        model_sandbox.CONFINEMENT.format(memory=3 << 30) + """
+import os, resource, sys
 from pathlib import Path
 
 secret, journal, pid, network = sys.argv[1:]
@@ -652,6 +651,17 @@ assert not Path(secret).exists()
 assert not Path(journal).exists()
 assert not Path("/proc", pid).exists()
 assert os.readlink("/proc/self/ns/net") != network
+assert resource.getrlimit(resource.RLIMIT_AS) == (3 << 30, 3 << 30)
+assert resource.getrlimit(resource.RLIMIT_FSIZE) == (16 << 20, 16 << 20)
+try:
+    child = os.fork()
+except PermissionError:
+    pass
+else:
+    if child == 0:
+        os._exit(0)
+    os.waitpid(child, 0)
+    raise AssertionError("sandbox allowed process creation")
 assert Path("/model/weights.gguf").read_bytes() == b"GGUF"
 try:
     Path("/model/weights.gguf").write_bytes(b"changed")
