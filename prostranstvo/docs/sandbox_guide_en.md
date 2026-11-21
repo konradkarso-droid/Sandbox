@@ -50,7 +50,7 @@ python3 start.py
 The first start creates its own Python environment in `.venv` (the system
 Python is left alone), installs wasmtime and builds the agent. This takes a
 minute or two. Then a browser opens. If it does not, the link is printed in
-the terminal (`http://127.0.0.1:8737/?t=…`; without the `t` token the
+the terminal (`http://127.0.0.1:8737/#t=…`; without the `t` token the
 screen will not open). Stop it with Ctrl+C in the terminal.
 
 To check the installation without a model and without the screen:
@@ -198,7 +198,7 @@ the results (`itog.json`).
 | cloud: “no money on the account (402)” | top up or use a free model |
 | cloud: “the provider asks to wait (429)” | rate limit; wait or use another model |
 | many “not a move from the list” | the model does not keep the move format; use a stronger model |
-| “Open the link that start.py printed” | open the full link from the terminal, with `?t=…` |
+| “Open the link that start.py printed” | open the full link from the terminal, with `#t=…` |
 
 How it is built and what it guarantees: `pesochnitsa_specifikatsiya.md`
 (in Russian), §8 “What the sandbox cannot do”.

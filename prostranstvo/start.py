@@ -32,7 +32,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 VENV = HERE / ".venv"
 WASMTIME_VERSION = "50.0.1"
-LOCAL_ENGINE = "llama-cpp-python==0.3.37"     # той же версии, что в шагах 9–9б (serve.py)
+ZIG_VERSION = "0.17.1"
 
 
 def say(text: str) -> None:
@@ -47,9 +47,18 @@ def venv_python() -> Path:
     return VENV / "bin" / "python3"
 
 
-def pip(*args: str) -> bool:
-    r = subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", *args])
+def install(group: str, *args: str) -> bool:
+    requirements = HERE / "requirements" / f"{group}.txt"
+    r = subprocess.run([sys.executable, "-m", "pip", "--isolated", "install", "--disable-pip-version-check",
+                        "--require-hashes", "-r", str(requirements), *args])
     return r.returncode == 0
+
+
+def installed(name: str) -> str | None:
+    try:
+        return version(name)
+    except PackageNotFoundError:
+        return None
 
 
 def ensure_venv(argv: list[str]) -> None:
@@ -67,25 +76,20 @@ def ensure_venv(argv: list[str]) -> None:
 
 
 def ensure_packages(local: bool) -> None:
-    try:
-        installed = version("wasmtime")
-    except PackageNotFoundError:
-        installed = None
-    if installed != WASMTIME_VERSION:
+    from app.model_sandbox import ENGINE_VERSION, engine_available
+
+    if installed("wasmtime") != WASMTIME_VERSION:
         requirement = f"wasmtime=={WASMTIME_VERSION}"
         say(f"Ставлю {requirement} … / Installing {requirement} …")
-        if not pip(requirement):
+        if not install("runtime"):
             say("wasmtime не встал — проверь связь с pypi.org. / wasmtime failed to install — check access to pypi.org.")
             sys.exit(1)
-    if local:
-        try:
-            import llama_cpp  # noqa: F401
-        except ImportError:
-            say(f"Ставлю движок локальных моделей ({LOCAL_ENGINE}), сборка около 10 минут. / "
-                f"Installing the local model engine ({LOCAL_ENGINE}), about 10 minutes to build.")
-            say("Нужны / needs: cmake, C++ (Debian/Ubuntu: sudo apt install cmake build-essential).")
-            if not pip(LOCAL_ENGINE):
-                say("Движок не встал; облачные модели работают и без него. / The engine failed to install; cloud models work without it.")
+    if local and not engine_available():
+        say(f"Ставлю движок локальных моделей {ENGINE_VERSION}, сборка около 10 минут. / "
+            f"Installing local model engine {ENGINE_VERSION}, about 10 minutes to build.")
+        say("Нужны / needs: cmake, C++ (Debian/Ubuntu: sudo apt install cmake build-essential).")
+        if not install("model-build") or not install("model", "--no-build-isolation"):
+            say("Движок не встал; облачные модели работают и без него. / The engine failed to install; cloud models work without it.")
 
 
 def ensure_agent() -> str:
@@ -97,11 +101,9 @@ def ensure_agent() -> str:
         return "clang"
     except RuntimeError:
         pass
-    try:
-        import ziglang  # noqa: F401
-    except ImportError:
+    if installed("ziglang") != ZIG_VERSION:
         say("clang для wasm32 не найден — ставлю zig из pip … / No clang for wasm32 — installing zig from pip …")
-        if not pip("ziglang"):
+        if not install("zig"):
             say("Сборщик не встал. / The compiler failed to install. sudo apt install clang lld")
             sys.exit(1)
     b.build("zig")

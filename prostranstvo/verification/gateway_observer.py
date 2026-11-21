@@ -8,16 +8,16 @@ from verification.observer5 import BROKEN, HOLDS, read_journal
 LAW = "И36р"
 
 
-def check(workdir: Path, provider: str) -> tuple[str, str]:
+def check(workdir: Path, provider: str, *, journal: Path | None = None) -> tuple[str, str]:
     try:
-        verify(workdir, provider)
+        verify(workdir, provider, journal=journal)
     except (OSError, ValueError, KeyError, TypeError) as exc:
         return BROKEN, str(exc)
     return HOLDS, ""
 
 
-def verify(workdir: Path, provider: str) -> None:
-    rows, broken = read_journal(workdir / "journal5.jsonl")
+def verify(workdir: Path, provider: str, *, journal: Path | None = None) -> None:
+    rows, broken = read_journal(journal or workdir / "journal5.jsonl")
     if broken:
         raise ValueError(broken)
     setup = next((r for r in rows if r["kind"] == "учёт"), {})

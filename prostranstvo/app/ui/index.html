@@ -298,7 +298,13 @@
 
 <script>
 "use strict";
-const TOKEN = "__TOKEN__";
+const launchToken = new URLSearchParams(location.hash.slice(1)).get("t");
+if (launchToken !== null) history.replaceState(null, "", location.pathname);
+let TOKEN = launchToken || "";
+try {
+  if (launchToken !== null) sessionStorage.setItem("sandboxToken", TOKEN);
+  else TOKEN = sessionStorage.getItem("sandboxToken") || "";
+} catch (_) { /* The launch token also works with browser storage disabled. */ }
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const bytes = (s) => new TextEncoder().encode(s).length;
@@ -629,7 +635,9 @@ async function api(path, body) {
   const opt = body === undefined ? {headers: {"X-Token": TOKEN}}
     : {method: "POST", headers: {"X-Token": TOKEN, "content-type": "application/json"}, body: JSON.stringify(body)};
   const r = await fetch(path, opt);
-  const j = await r.json().catch(() => ({error: `HTTP ${r.status}`}));
+  const j = await r.json().catch(() => ({error: r.status === 403
+    ? (LANG === "en" ? "Open the link that start.py printed in the terminal." : "Открой ссылку, которую напечатал start.py в терминале.")
+    : `HTTP ${r.status}`}));
   if (!r.ok) throw new Error((LANG === "en" && j.error_en) || j.error || `HTTP ${r.status}`);
   return j;
 }
@@ -701,9 +709,13 @@ function showExchange() {
     row.append(label);
     if (item.published) {
       const link = document.createElement("a");
-      const args = new URLSearchParams({id: exchangeJob.id, request: String(item.id), t: TOKEN});
+      const args = new URLSearchParams({id: exchangeJob.id, request: String(item.id)});
       link.href = "/api/exchange/file?" + args.toString();
       link.textContent = t("exchange_download");
+      link.onclick = (event) => {
+        event.preventDefault();
+        downloadFile(link.href, item.name).catch(error => window.alert(error.message));
+      };
       row.append(link);
     } else {
       const button = document.createElement("button");
@@ -1118,20 +1130,23 @@ function movesHtml(i) {
   return (own ? `<p class="small">${t("own_moves")}</p>` : "") + html;
 }
 
-async function downloadDetailed(id) {
-  if (!window.confirm(t("zip_detail_confirm"))) return;
-  const response = await fetch(`/api/zip/${encodeURIComponent(id)}`, {
-    method: "POST", headers: {"X-Token": TOKEN, "content-type": "application/json"},
-    body: JSON.stringify({include_transcripts: true})
-  });
+async function downloadFile(path, name, body) {
+  const headers = {"X-Token": TOKEN};
+  const options = {headers};
+  if (body !== undefined) {
+    headers["content-type"] = "application/json";
+    options.method = "POST";
+    options.body = JSON.stringify(body);
+  }
+  const response = await fetch(path, options);
   if (!response.ok) {
-    const error = await response.json();
+    const error = await response.json().catch(() => ({}));
     throw new Error((LANG === "en" && error.error_en) || error.error || `HTTP ${response.status}`);
   }
   const url = URL.createObjectURL(await response.blob());
   const link = document.createElement("a");
   link.href = url;
-  link.download = `prostranstvo_${id}-detailed.zip`;
+  link.download = name;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
@@ -1140,7 +1155,8 @@ function renderVerdict(r) {
   const v = $("verdictCard");
   if (live(r)) { v.classList.add("hidden"); return; }
   v.classList.remove("hidden");
-  const links = `<p class="small">${r.state === "ошибка" ? "" : `<a href="/api/zip/${r.id}?t=${TOKEN}">${t("zip")}</a> · <a href="#" id="zipDetailed">${t("zip_detail")}</a> · `}<a href="#" id="again">${t("again")}</a></p>`;
+  const zipPath = `/api/zip/${encodeURIComponent(r.id)}`;
+  const links = `<p class="small">${r.state === "ошибка" ? "" : `<a href="${zipPath}" id="zipSummary">${t("zip")}</a> · <a href="#" id="zipDetailed">${t("zip_detail")}</a> · `}<a href="#" id="again">${t("again")}</a></p>`;
   if (r.state !== "готово" || !r.result || r.result.stopped) {
     const stopped = r.state === "остановлено";
     v.innerHTML = `<div class="verdict bad"><b>${t(stopped ? "st_stopped" : "st_error")}</b>${t(stopped ? "stopped_text" : "error_text")}</div>${links}`;
@@ -1170,11 +1186,19 @@ function renderVerdict(r) {
       gh.parentElement.querySelector(".laws").classList.toggle("hidden");
     };
   }
-  const detailed = $("zipDetailed");
-  if (detailed) detailed.onclick = (e) => {
-    e.preventDefault();
-    downloadDetailed(r.id).catch(error => window.alert(error.message));
-  };
+  if ($("zipSummary")) {
+    $("zipSummary").onclick = (event) => {
+      event.preventDefault();
+      downloadFile(zipPath, `prostranstvo_${r.id}.zip`).catch(error => window.alert(error.message));
+    };
+    $("zipDetailed").onclick = (event) => {
+      event.preventDefault();
+      if (window.confirm(t("zip_detail_confirm"))) {
+        downloadFile(zipPath, `prostranstvo_${r.id}-detailed.zip`, {include_transcripts: true})
+          .catch(error => window.alert(error.message));
+      }
+    };
+  }
   $("again").onclick = (e) => { e.preventDefault(); newRun(); };
 }
 
@@ -1214,7 +1238,11 @@ async function init() {
     if (s) $("words").value = s[LANG].words, countWords();
   };
   applyLang();
-  try { INFO = await api("/api/info"); } catch (e) { $("how").textContent = e.message; return; }
+  try { INFO = await api("/api/info"); } catch (e) {
+    $("how").textContent = e.message;
+    $("how").classList.remove("hidden");
+    return;
+  }
   $("preset").onchange = onPreset;
   for (const b of $("seg").children) b.onclick = () => setContour(b.dataset.c);
   $("words").oninput = () => { if (scenario !== "own") { scenario = "own"; renderScenarios(); } countWords(); };

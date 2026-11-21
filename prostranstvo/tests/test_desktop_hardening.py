@@ -13,6 +13,27 @@ from sandbox.ipc import Channel
 from sandbox.model9 import MODEL_LINE_LIMIT, ModelLink
 
 
+def test_checkpoint_does_not_accept_replay_or_truncation(tmp_path):
+    from app.checkpoint import Checkpoint, matches
+    from env.journal import Journal
+
+    original = tmp_path / "worker.jsonl"
+    journal = Journal.create(original)
+    journal.append({"kind": "fixture", "value": 1})
+    journal.append({"kind": "fixture", "value": 2})
+    first, second = original.read_bytes().splitlines(keepends=True)
+    checkpoint = Checkpoint(tmp_path / "checkpoint.jsonl")
+    checkpoint.append(first)
+    with pytest.raises(ValueError, match="цепочка"):
+        checkpoint.append(first)
+    checkpoint.append(second)
+    assert matches(checkpoint.path, original)
+    assert checkpoint.path.stat().st_mode & 0o777 == 0o600
+    original.write_bytes(first)
+    assert not matches(checkpoint.path, original)
+    assert checkpoint.path.read_bytes() == first + second
+
+
 def test_ipc_preserves_types_and_checks_byte_limits():
     left, right = (Channel(sock, 128) for sock in socket.socketpair())
     try:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 import shutil
 import site
@@ -11,11 +12,26 @@ import sys
 import sysconfig
 
 SERVE = Path(__file__).resolve().parents[1] / "model9" / "serve.py"
+SEAL = Path(__file__).resolve().with_name("seal.py")
+ENGINE_VERSION = "0.3.37"
 SYSTEM_LIBS = ("/usr/lib", "/usr/lib64", "/lib", "/lib64", "/lib32")
+CONFINEMENT = """
+import os, resource, runpy
+os.umask(0o077)
+for limit, ceiling in ((resource.RLIMIT_AS, {memory}), (resource.RLIMIT_CPU, 1800),
+                       (resource.RLIMIT_NOFILE, 128), (resource.RLIMIT_FSIZE, 16 << 20),
+                       (resource.RLIMIT_CORE, 0)):
+    resource.setrlimit(limit, (ceiling, ceiling))
+runpy.run_path('/model/seal.py')['seal'](allow_unix=False, worker=True)
+"""
 START = """
-import json, runpy, sys
+import json, sys
 sys.path[:0] = json.loads(sys.argv[1])
 sys.argv = {argv!r}
+if sys.argv[1] == '--gguf':
+    from importlib.metadata import version
+    if version('llama-cpp-python') != {engine!r}:
+        raise RuntimeError('unsupported llama-cpp-python version')
 print("ready", flush=True)
 runpy.run_path(sys.argv[0], run_name="__main__")
 """
@@ -65,12 +81,23 @@ def command(model: Path, *, script: bool = False) -> list[str]:
     mode = "--script" if script else "--gguf"
     # Keep the constants in the isolated bootstrap rather than adding them
     # after the interpreter arguments used by the boundary probe.
-    start = START.format(argv=["/model/serve.py", mode, path])
+    model = model.resolve(strict=True)
+    # The weights may be mapped and also copied by the backend. Leave an
+    # additional allowance for inference state, libraries and thread stacks.
+    memory = (3 << 30) + 2 * model.stat().st_size
+    start = CONFINEMENT.format(memory=memory) + START.format(argv=["/model/serve.py", mode, path], engine=ENGINE_VERSION)
     return [
         *prefix, *mounts, "--ro-bind", str(SERVE), "/model/serve.py",
-        "--ro-bind", str(model.resolve(strict=True)), path,
+        "--ro-bind", str(SEAL), "/model/seal.py", "--ro-bind", str(model), path,
         "--remount-ro", "/", "--", python, "-I", "-S", "-c", start, json.dumps(packages),
     ]
+
+
+def engine_available() -> bool:
+    try:
+        return version("llama-cpp-python") == ENGINE_VERSION
+    except PackageNotFoundError:
+        return False
 
 
 def check() -> str | None:
@@ -79,8 +106,9 @@ def check() -> str | None:
         prefix = _prefix()
         mounts, python, _ = _runtime()
         result = subprocess.run(
-            [*prefix, *mounts, "--remount-ro", "/", "--", python, "-I", "-S", "-c",
-             "import ctypes, json, socket"], env={}, stdin=subprocess.DEVNULL,
+            [*prefix, *mounts, "--ro-bind", str(SEAL), "/model/seal.py",
+             "--remount-ro", "/", "--", python, "-I", "-S", "-c",
+             CONFINEMENT.format(memory=3 << 30)], env={}, stdin=subprocess.DEVNULL,
             capture_output=True, text=True, timeout=5,
         )
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:

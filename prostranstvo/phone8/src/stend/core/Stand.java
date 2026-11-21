@@ -280,7 +280,7 @@ public final class Stand {
         if (out1.exists()) {
             for (String l : Files.readAllLines(out1.toPath(), StandardCharsets.UTF_8)) if (!l.trim().isEmpty()) t.deliveries++;
         }
-        Exec.delete(new File(wd));
+        Exec.delete(ex.root, new File(wd));
         return t;
     }
 

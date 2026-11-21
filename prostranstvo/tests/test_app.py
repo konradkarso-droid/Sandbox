@@ -461,11 +461,12 @@ def test_screen_token_and_host(monkeypatch):
         except urllib.error.HTTPError as e:
             return e.code, e.read()
     try:
-        assert get("/")[0] == 403
         assert get("/api/info")[0] == 403
-        assert get(f"/?t={app.token}", {"Host": f"evil.example:{port}"})[0] == 403
-        code, page = get(f"/?t={app.token}")
-        assert code == 200 and app.token.encode() in page
+        assert get("/", {"Host": f"evil.example:{port}"})[0] == 403
+        assert get(f"/api/info?t={app.token}")[0] == 403
+        assert get("/api/info", {"X-Token": app.token, "Host": f"evil.example:{port}"})[0] == 403
+        code, page = get("/")
+        assert code == 200 and app.token.encode() not in page
         code, info = get("/api/info", {"X-Token": app.token})
         info = json.loads(info)
         assert code == 200 and info["seal"]["сомкнутый"] == app.executor_sandbox_error

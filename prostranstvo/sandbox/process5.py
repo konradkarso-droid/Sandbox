@@ -290,6 +290,9 @@ class Driver:
         self.close()
         self._start()
 
+    def _receive(self, deadline):
+        return self.conn.receive(deadline)
+
     def call(self, *msg, timeout: float | None = None):
         timeout = self.timeout if timeout is None else timeout
         if not self.proc.is_alive():
@@ -298,7 +301,7 @@ class Driver:
         deadline = time.monotonic() + timeout
         try:
             self.conn.send(msg, deadline)
-            reply = self.conn.receive(deadline)
+            reply = self._receive(deadline)
             if not isinstance(reply, tuple) or len(reply) != 2:
                 raise ValueError("invalid executor reply")
             status, value = reply

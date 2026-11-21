@@ -108,7 +108,7 @@ def check(run: dict) -> dict[str, tuple[str, str]]:
     out = observer5b.check({**run, "ext_world": run.get("ext_world") or mir6})
     wd = Path(run["workdir"])
     dump = run.get("dump") or {}
-    recs, _ = read_journal(wd / "journal5.jsonl")
+    recs, _ = read_journal(run.get("journal", wd / "journal5.jsonl"))
     bad = {k: [] for k in LAWS6}
     measures = {"свобода_бит": 0.0, "принято": 0, "частей": 0, "проверка_среды": 0, "проверка_агента": 0}
     for i in (1, 2):
