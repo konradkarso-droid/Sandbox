@@ -38,7 +38,7 @@ jobs:
       - name: Тесты границ с локальным получателем
         run: |
           set -o pipefail
-          .venv/bin/python3 -m pip install pytest
+          .venv/bin/python3 -m pip --isolated install --require-hashes -r requirements/test.txt
           .venv/bin/python3 -m pytest -q -rs tests/test_app.py tests/test_gateway.py tests/test_exchange.py tests/test_audit_remediation.py tests/test_desktop_hardening.py \
             | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Прогон оплачиваемого файлового обмена с Astra
