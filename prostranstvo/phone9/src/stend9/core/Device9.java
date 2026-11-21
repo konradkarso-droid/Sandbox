@@ -1,8 +1,10 @@
 package stend9.core;
 
 import stend.core.Device;
+import stend.core.Exec;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -28,4 +30,20 @@ public interface Device9 extends Device {
      * изображает отказ сети Android (способ probe, контракт §18.1).
      */
     Map<String, String> extraEnv();
+
+    default Process startModel(List<String> command) throws IOException {
+        ProcessBuilder pb = new ProcessBuilder(command).redirectError(
+                ProcessBuilder.Redirect.appendTo(new File(workDir(), "serve_stderr.txt")));
+        pb.environment().putAll(extraEnv());
+        return pb.start();
+    }
+
+    default Exec startModelExecutor(File root, String kind, String serve, int timeout, int[] threads) throws IOException {
+        String mode = "--gguf " + modelFile().getPath();
+        if (threads != null) mode += " --threads " + threads[0] + " --threads-batch " + threads[1];
+        Map<String, String> env = new java.util.HashMap<>(extraEnv());
+        env.put("MODEL_SERVE", serve);
+        return new Exec(exe(), root, kind, java.util.Arrays.asList("--model=" + mode,
+                "--model-timeout=" + timeout, "--model-net=probe"), env);
+    }
 }

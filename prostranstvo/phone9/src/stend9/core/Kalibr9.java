@@ -751,13 +751,7 @@ public final class Kalibr9 implements Runnable {
     }
 
     private Exec startExec(File root, int T, String kind) throws IOException, Stopped {
-        int[] p = pairOf();
-        String serve = serveOf();
-        List<String> args = Arrays.asList("--model=--gguf " + dev.modelFile().getPath() + " --threads " + p[0]
-                + " --threads-batch " + p[1], "--model-timeout=" + T, "--model-net=probe");
-        Map<String, String> env = new HashMap<>(dev.extraEnv());
-        env.put("MODEL_SERVE", serve);
-        Exec ex = new Exec(dev.exe(), root, kind, args, env);
+        Exec ex = dev.startModelExecutor(root, kind, serveOf(), T, pairOf());
         current = ex;
         return ex;
     }
@@ -785,12 +779,8 @@ public final class Kalibr9 implements Runnable {
                 cmd.add(s.dev.modelFile().getPath());
                 if (pair != null) cmd.addAll(Arrays.asList("--threads", "" + pair[0], "--threads-batch", "" + pair[1]));
             }
-            ProcessBuilder pb = new ProcessBuilder(cmd)
-                    .redirectError(ProcessBuilder.Redirect.appendTo(new File(s.dev.workDir(), "serve_stderr.txt")));
-            pb.environment().putAll(s.dev.extraEnv());
-            s.dev.workDir().mkdirs();
             try {
-                p = pb.start();
+                p = s.dev.startModel(cmd);
             } catch (IOException e) {
                 throw new Stopped("Программа модели не запустилась: " + e.getMessage());
             }
@@ -870,12 +860,15 @@ public final class Kalibr9 implements Runnable {
             } catch (IOException ignored) {
             }
             try {
-                if (!p.waitFor(10, TimeUnit.SECONDS)) p.destroyForcibly();
-                p.waitFor();
+                if (!p.waitFor(10, TimeUnit.SECONDS)) {
+                    p.destroyForcibly();
+                    p.waitFor(3, TimeUnit.SECONDS);
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 p.destroyForcibly();
             } finally {
+                try { outR.close(); } catch (IOException ignored) {}
                 s.direct.remove(p);
             }
         }

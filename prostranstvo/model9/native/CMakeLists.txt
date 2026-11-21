@@ -20,6 +20,9 @@ endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(ANDROID)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
@@ -46,7 +49,12 @@ set(JINJA
     ${LLAMA_SRC}/common/unicode.cpp
     ${LLAMA_SRC}/common/json.cpp)
 
-add_executable(serve9 serve9.cpp ${JINJA})
+if(ANDROID)
+    add_library(serve9 SHARED serve9.cpp ${JINJA})
+    set_target_properties(serve9 PROPERTIES PREFIX "" SUFFIX "")
+else()
+    add_executable(serve9 serve9.cpp ${JINJA})
+endif()
 target_include_directories(serve9 PRIVATE ${LLAMA_SRC}/common ${LLAMA_SRC}/vendor)
 target_link_libraries(serve9 PRIVATE llama)
 
