@@ -38,8 +38,9 @@ the top right). Step-by-step guide: [how to use it](prostranstvo/docs/sandbox_gu
 
 `python3 start.py --check` checks the installation without a model and
 without the screen. `python3 start.py --local` also installs the engine for
-local GGUF models (about 10 minutes to build). For local models, install
-Bubblewrap and enable unprivileged user namespaces for it.
+local GGUF models (about 10 minutes to build). Desktop runs require
+Bubblewrap with unprivileged user namespaces enabled. The executor and
+local GGUF loader run in separate sandboxes.
 
 The agent can be the built-in one (its rules for the model in English or
 Russian) or **your own WebAssembly program**: [how to write your own agent](prostranstvo/docs/own_agent_en.md).
@@ -128,7 +129,7 @@ python3 start.py
 
 Откроется экран в браузере (русский и английский — переключатель вверху
 справа). Для **локальной** модели выбери GGUF из доверенного источника.
-Его загрузчик работает в Bubblewrap. Можно выбрать и **облачную** модель (OpenRouter,
+Для настольного запуска нужны Bubblewrap и доступные пользовательские пространства имён. Исполнитель и загрузчик работают в отдельных песочницах. Можно выбрать и **облачную** модель (OpenRouter,
 Anthropic, OpenAI, DeepSeek, Groq, Mistral, Gemini, сервисы на этом
 компьютере — Ollama, LM Studio). Выбираешь, что проверить, — смотришь
 ходы агента с объяснением каждого — в конце итог: какие законы

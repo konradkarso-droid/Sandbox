@@ -156,7 +156,8 @@ def check(run: dict) -> dict[str, tuple[str, str]]:
     # И23р
     bad = sorted({" / ".join(r["signature"]) for r in actions if tuple(r["signature"]) not in inventory})
     for i in (1, 2):
-        imp = imports_of(run["sources"][i])
+        checks = run.get("module_imports")
+        imp = checks.get(i) if checks is not None else imports_of(run["sources"][i])
         loaded = run["loads"][i][0] == "загружен"
         if loaded and (imp is None or not imp <= ALLOWED_IMPORTS):
             extra = sorted(f"{m}.{n}" for m, n in (imp or set()) - ALLOWED_IMPORTS)

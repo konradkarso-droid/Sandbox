@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import time
@@ -29,6 +30,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+
+from app.http_body import bounded
 
 # Готовые адреса. Имя модели человек пишет сам или берёт из списка
 # поставщика (list_models): имена моделей меняются чаще, чем этот файл.
@@ -57,6 +60,8 @@ PRESETS = [
 ]
 
 ANTHROPIC_VERSION = "2023-06-01"
+RESPONSE_LIMIT = 1 << 20
+ERROR_LIMIT = 16 << 10
 RETRY_CODES = (408, 409, 425, 429, 500, 502, 503, 504, 529)
 
 
@@ -161,19 +166,25 @@ def _request(c: Cloud, method: str, path: str, body: dict | None, timeout: float
         handlers.append(_NoRedirect())
     opener = urllib.request.build_opener(*handlers)
     deadline = time.monotonic() + timeout
-    with opener.open(req, timeout=max(0.1 if one_shot else 1.0, timeout)) as r:
-        if not one_shot:
-            return json.loads(r.read().decode("utf-8", "replace"))
-        cap = 1024 * 1024
-        raw = bytearray()
-        while len(raw) <= cap:
-            if time.monotonic() >= deadline:
-                raise TimeoutError("срок получения ответа истёк")
-            chunk = r.read1(min(16384, cap - len(raw) + 1))
-            if not chunk:
-                return json.loads(raw.decode("utf-8", "replace"))
-            raw.extend(chunk)
-        raise ValueError("ответ поставщика больше 1 МиБ")
+    with opener.open(req, timeout=timeout) as response:
+        length = response.headers.get("content-length")
+        if length is not None and int(length) > RESPONSE_LIMIT:
+            raise ValueError("HTTP response exceeds its byte limit")
+        raw = bounded(response, RESPONSE_LIMIT, deadline)
+        result = json.loads(raw.decode("utf-8", "replace"))
+        if not isinstance(result, dict):
+            raise ValueError("expected a JSON object from the provider")
+        return result
+
+
+def _error_body(error, deadline: float) -> str:
+    with error:
+        if error.fp is None:
+            return ""
+        try:
+            return bounded(error.fp, ERROR_LIMIT, deadline, truncate=True).decode("utf-8", "replace")
+        except (OSError, ValueError, http.client.HTTPException):
+            return ""
 
 
 def _body(c: Cloud, question: str) -> tuple[str, dict]:
@@ -225,7 +236,7 @@ def ask(c: Cloud, question: str, deadline: float) -> tuple[str, dict]:
         try:
             return _text(c, _request(c, "POST", path, body, left))
         except urllib.error.HTTPError as e:
-            text = e.read().decode("utf-8", "replace") if e.fp else ""
+            text = _error_body(e, deadline)
             low = text.lower()
             if e.code == 400 and not adapted:
                 # Модели с рассуждением у OpenAI просят другое поле для предела
@@ -239,9 +250,9 @@ def ask(c: Cloud, question: str, deadline: float) -> tuple[str, dict]:
             last = _human(e.code, text)
             if e.code not in RETRY_CODES:
                 raise CloudError(last)
-        except (urllib.error.URLError, TimeoutError, OSError) as e:
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
             last = f"нет связи / no connection: {getattr(e, 'reason', e)}"
-        except (ValueError, KeyError, IndexError) as e:
+        except (ValueError, KeyError, IndexError, RecursionError) as e:
             raise CloudError(f"непонятный ответ поставщика / unreadable provider answer: {e}")
         time.sleep(min(pause, max(0.0, deadline - time.monotonic() - 0.5)))
         pause = min(pause * 2, 8.0)
@@ -258,20 +269,23 @@ def ask_once(c: Cloud, question: str, timeout: float) -> tuple[str, dict]:
     except urllib.error.HTTPError as exc:
         exc.close()
         raise CloudError(_human(exc.code, "")) from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+    except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
         raise CloudOutcomeUnknown("ответ о приёме запроса не получен") from exc
-    except (ValueError, KeyError, IndexError, AttributeError, TypeError) as exc:
+    except (ValueError, KeyError, IndexError, AttributeError, TypeError, RecursionError) as exc:
         raise CloudError("непонятный или слишком большой ответ поставщика") from exc
 
 
 def list_models(c: Cloud, timeout: float = 20.0) -> list[str]:
     """Имена моделей у поставщика (GET /models). CloudError — не вышло."""
+    deadline = time.monotonic() + timeout
     try:
         r = _request(c, "GET", "/models", None, timeout)
     except urllib.error.HTTPError as e:
-        raise CloudError(_human(e.code, e.read().decode("utf-8", "replace") if e.fp else ""))
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise CloudError(_human(e.code, _error_body(e, deadline))) from e
+    except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
         raise CloudError(f"нет связи / no connection: {getattr(e, 'reason', e)}")
+    except (ValueError, RecursionError) as e:
+        raise CloudError(f"непонятный ответ поставщика / unreadable provider answer: {e}") from e
     items = r.get("data") or r.get("models") or []
     names = [x.get("id") or x.get("name") for x in items if isinstance(x, dict)]
     return sorted(n for n in names if n)

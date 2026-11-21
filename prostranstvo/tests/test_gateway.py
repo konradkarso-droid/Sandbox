@@ -170,7 +170,7 @@ def test_unknown_receipt_keeps_charge_and_cannot_be_resent(tmp_path, monkeypatch
     ("gpt-6.2-astra", False),
     ("gpt-6.2-astra", True),
 ])
-def test_builtin_agent_reaches_provider_through_paid_cloud_profile(tmp_path, monkeypatch, model, read_unavailable):
+def test_builtin_agent_reaches_provider_through_paid_cloud_profile(isolated_executor, tmp_path, monkeypatch, model, read_unavailable):
     commands = [
         'FILES {"tool":"files.list"}',
         'FILES {"tool":"files.read","id":1,"offset":0,"length":6}',
@@ -240,7 +240,7 @@ def test_builtin_agent_reaches_provider_through_paid_cloud_profile(tmp_path, mon
     (2, b"OK=4\nWAIT=3\nREFERENCE=REF-175\n", False),
     (1, b"OK=3\nWAIT=2\nREFERENCE=UNAVAILABLE\n", True),
 ])
-def test_astra_acceptance_checks_private_markers(tmp_path, monkeypatch, case, expected, marker_in_response):
+def test_astra_acceptance_checks_private_markers(isolated_executor, tmp_path, monkeypatch, case, expected, marker_in_response):
     """Сквозная проверка приёмки с HTTP-заглушкой вместо реального API.
 
     Код берётся из разрешённого CSV либо отмечается как недоступный.
@@ -281,7 +281,7 @@ def test_astra_acceptance_checks_private_markers(tmp_path, monkeypatch, case, ex
             assert all(pair * 16 not in question for pair in ("f1", "a2", "b3"))
 
 
-def test_parallel_exchange_sessions_keep_inputs_and_approvals_separate(tmp_path, monkeypatch):
+def test_parallel_exchange_sessions_keep_inputs_and_approvals_separate(isolated_executor, tmp_path, monkeypatch):
     """Два экземпляра приложения ведут независимые сеансы одновременно."""
     from app import runner, server
     from app.exchange import ExchangeJob

@@ -110,7 +110,7 @@ def test_run_mounts_verified_copy_and_cleans_up(tmp_path, monkeypatch):
     original.write_bytes(b"GGUF synthetic data")
     ref = reference(original.read_bytes())
     monkeypatch.setattr(model_sandbox, "check", lambda: None)
-    monkeypatch.setattr(runner.sealmod, "check", lambda _: None)
+    monkeypatch.setattr(runner.worker, "check", lambda: None)
     staged = []
     launch = []
 
@@ -123,12 +123,17 @@ def test_run_mounts_verified_copy_and_cleans_up(tmp_path, monkeypatch):
         assert reference(path.read_bytes()) == ref
         return ["fake-bubblewrap", str(path)]
 
-    def driver(*args, model, **kwargs):
-        launch.append(model["sandbox_argv"])
+    def models(argv, _timeout):
+        launch.append(argv)
+        return SimpleNamespace(specification=lambda: {}, close=lambda: None)
+
+    def driver(*args, **kwargs):
         return SimpleNamespace(proc=SimpleNamespace(is_alive=lambda: False), close=lambda: None)
 
     monkeypatch.setattr(model_sandbox, "command", command)
-    monkeypatch.setattr(runner, "SealedDriver", driver)
+    monkeypatch.setattr(runner, "LocalModels", models)
+    monkeypatch.setattr(runner, "IsolatedDriver", driver)
+    monkeypatch.setattr(runner.worker, "inspect", lambda _: {"imports": []})
     monkeypatch.setattr(runner, "run_contours", lambda *args, **kwargs: {})
     monkeypatch.setattr(runner.Run, "_finish", lambda *args: None)
     settings = runner.Settings(contour="сомкнутый", model=str(original), model_integrity=ref)

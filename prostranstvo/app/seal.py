@@ -33,7 +33,7 @@ _ARCH = {
     "x86_64": (0xC000003E, 41, 425, 317),
     "aarch64": (0xC00000B7, 198, 425, 277),
 }
-_LD_ABS, _JEQ, _JGE, _RET = 0x20, 0x15, 0x35, 0x06
+_LD_ABS, _JEQ, _JGE, _JSET, _RET = 0x20, 0x15, 0x35, 0x45, 0x06
 _ALLOW, _EPERM, _KILL = 0x7FFF0000, 0x00050000 | 1, 0x80000000
 _X32 = 0x40000000              # вызовы x32 на x86_64: номер с этим битом
 _PR_SET_NO_NEW_PRIVS = 38
@@ -49,18 +49,37 @@ def available() -> str | None:
     return None
 
 
-def _program(arch: int, nr_socket: int, nr_uring: int, allow_unix: bool) -> bytes:
+# link/symlink/mknod and their *at variants. The worker's journal directory
+# crosses the mount boundary, so only regular files and directories belong there.
+_WORKER_DENIED = {
+    "x86_64": (57, 58, 59, 86, 88, 133, 259, 265, 266, 322),
+    "aarch64": (33, 36, 37, 221, 281),
+}
+_WORKER_CLONE = {"x86_64": 56, "aarch64": 220}
+_CLONE3, _CLONE_THREAD = 435, 0x00010000
+_ENOSYS = 0x00050000 | 38
+
+
+def _program(arch: int, nr_socket: int, nr_uring: int, allow_unix: bool, denied=(), clone=None) -> bytes:
     def stmt(code: int, k: int) -> bytes:
         return struct.pack("=HBBI", code, 0, 0, k)
 
     def jump(k: int, jt: int, jf: int, code: int = _JEQ) -> bytes:
         return struct.pack("=HBBI", code, jt, jf, k)
 
+    process_filter = [] if clone is None else [
+        jump(_CLONE3, 0, 1), stmt(_RET, _ENOSYS),  # libc can fall back to clone for threads
+        jump(clone, 0, 4),
+        stmt(_LD_ABS, 16), jump(_CLONE_THREAD, 0, 1, _JSET),
+        stmt(_RET, _ALLOW), stmt(_RET, _EPERM),
+    ]
     return b"".join([
         stmt(_LD_ABS, 4), jump(arch, 1, 0), stmt(_RET, _KILL),          # чужая архитектура — смерть
         stmt(_LD_ABS, 0),
         jump(_X32, 0, 1, _JGE), stmt(_RET, _EPERM),                     # x32 — отказ
         jump(nr_uring, 0, 1), stmt(_RET, _EPERM),                       # io_uring — отказ
+        *(insn for nr in denied for insn in (jump(nr, 0, 1), stmt(_RET, _EPERM))),
+        *process_filter,
         jump(nr_socket, 1, 0), stmt(_RET, _ALLOW),                      # не socket — можно
         stmt(_LD_ABS, 16),                                              # семейство (младшие 32 бита)
         jump(socket.AF_UNIX, 0, 1), stmt(_RET, _ALLOW if allow_unix else _EPERM),
@@ -68,7 +87,7 @@ def _program(arch: int, nr_socket: int, nr_uring: int, allow_unix: bool) -> byte
     ])
 
 
-def seal(allow_unix: bool) -> None:
+def seal(allow_unix: bool, *, worker: bool = False) -> None:
     """Поставить печать на этот процесс (все его нити — TSYNC) и всех его
     будущих потомков. Ошибка — OSError: процесс без печати дальше идти не
     должен, решает вызывающий."""
@@ -76,7 +95,10 @@ def seal(allow_unix: bool) -> None:
     if why:
         raise OSError(why)
     arch, nr_socket, nr_uring, nr_seccomp = _ARCH[platform.machine()]
-    prog = _program(arch, nr_socket, nr_uring, allow_unix)
+    machine = platform.machine()
+    denied = _WORKER_DENIED[machine] if worker else ()
+    clone = _WORKER_CLONE[machine] if worker else None
+    prog = _program(arch, nr_socket, nr_uring, allow_unix, denied, clone)
     buf = ctypes.create_string_buffer(prog, len(prog))
 
     class _Fprog(ctypes.Structure):
@@ -88,24 +110,6 @@ def seal(allow_unix: bool) -> None:
         raise OSError(ctypes.get_errno(), "prctl(PR_SET_NO_NEW_PRIVS) не прошёл")
     if libc.syscall(nr_seccomp, _SET_MODE_FILTER, _FLAG_TSYNC, ctypes.byref(fprog)) != 0:
         raise OSError(ctypes.get_errno(), "seccomp не принял фильтр")
-
-
-def sealed_main(seal_mode: str, conn, root, defects, limits, kind="5", model=None) -> None:
-    """Seal the executor before accepting commands.
-
-    Bubblewrap must configure its own network namespace before the executor
-    installs a filter that denies the socket used by that setup.
-    """
-    from sandbox.model9 import start_links
-    from sandbox.process5 import _main
-
-    links = start_links(model) if model and model.get("net") == "bwrap" else None
-    try:
-        seal(allow_unix=(seal_mode == "разомкнутый"))
-    except OSError as e:
-        sys.stderr.write(f"печать сети не встала: {e}\n")
-        os._exit(3)
-    _main(conn, root, defects, limits, kind, model, model_links=links)
 
 
 _CHECK = r"""

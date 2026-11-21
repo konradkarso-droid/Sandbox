@@ -103,7 +103,8 @@ def put_private(path: Path, data: bytes) -> None:
     """Файлы исполнителя записывает только его процесс. Абсолютные пути видит аудит."""
     tmp = path.with_name(".pending-" + secrets.token_hex(16))
     try:
-        with tmp.open("xb") as stream:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as stream:
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
