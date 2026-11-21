@@ -1145,8 +1145,10 @@ async function downloadFile(path, name, body) {
   }
   const url = URL.createObjectURL(await response.blob());
   const link = document.createElement("a");
+  const disposition = response.headers.get("content-disposition") || "";
+  const encodedName = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
   link.href = url;
-  link.download = name;
+  link.download = encodedName ? decodeURIComponent(encodedName[1]) : name;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
