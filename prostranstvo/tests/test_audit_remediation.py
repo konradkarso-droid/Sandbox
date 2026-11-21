@@ -93,7 +93,7 @@ def test_gguf_download_publishes_only_matching_content(tmp_path, monkeypatch):
         headers = {}
 
     def deliver(data):
-        monkeypatch.setattr(server.urllib.request, "urlopen", lambda *args, **kwargs: Response(data))
+        monkeypatch.setattr(server, "open_response", lambda *args, **kwargs: Response(data))
         app._download("https://example.test/fixture.gguf", "fixture.gguf", reference(expected))
 
     for wrong in (b"GGUF" + b"x" * (len(expected) - 4), expected + b"x", expected[:-1]):
