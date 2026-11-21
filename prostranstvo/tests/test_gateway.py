@@ -261,7 +261,8 @@ def test_astra_acceptance_checks_private_markers(tmp_path, monkeypatch, case, ex
         "a2" * 16 if marker_in_response else "STOP",
     ])
     with provider(answers) as (url, seen):
-        monkeypatch.setitem(gateway.PROVIDERS, "openai", {"base": url, "kind": "openai"})
+        monkeypatch.setitem(gateway.PROVIDERS, "openai",
+                            {"base": url, "kind": "openai", "key_env": "OPENAI_API_KEY"})
         monkeypatch.setattr(astra_acceptance, "OPENAI_BASE", url)
         monkeypatch.setattr(cloud, "OPENAI_BASE", url)
         monkeypatch.setattr(server, "EXCHANGES", tmp_path / "exchange")

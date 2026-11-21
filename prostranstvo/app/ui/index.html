@@ -182,6 +182,13 @@
         <label class="f"><span data-t="url_l"></span>
           <div class="row"><input type="url" id="url" spellcheck="false" placeholder="https://huggingface.co/…/model.gguf">
             <button class="btn2" id="btnDl" data-t="download"></button></div></label>
+        <div class="row">
+          <label class="f"><span data-t="gguf_hash"></span>
+            <input id="ggufHash" type="text" maxlength="64" spellcheck="false"></label>
+          <label class="f"><span data-t="gguf_size"></span>
+            <input id="ggufSize" type="text" inputmode="numeric" spellcheck="false"></label>
+        </div>
+        <div class="small" data-t="gguf_source"></div>
         <div class="out" id="dlOut"></div>
         <div class="out bad" id="engineOut"></div>
       </div>
@@ -316,6 +323,9 @@ const T = {
   local_noseal: "Для локальной модели требуется рабочий Bubblewrap (bwrap): {why}.",
   cloud_explain: "Модель у поставщика или в отдельной программе на этом компьютере (Ollama, LM Studio). Вопросы агента уходят ей по сети — каждый оплачен из бюджета агента и записан в журнал до отправки. У самой песочницы сети нет.",
   found: "Найдено в папке моделей:", nofound: "В папке моделей пока нет файлов. Укажи путь к своему файлу или скачай по ссылке.",
+  gguf_hash: "Ожидаемый SHA-256", gguf_size: "Ожидаемый размер в байтах",
+  gguf_source: "Укажи SHA-256 и размер из доверенного релиза. Для моделей из подписанного каталога поля можно оставить пустыми.",
+  gguf_need: "Укажи доверенный SHA-256 и размер модели в байтах",
   path_l: "Или путь к файлу .gguf на этом компьютере", url_l: "Или скачать по ссылке — например, с huggingface.co",
   download: "Скачать", dl_going: "Качаю {name}: {pct}", dl_done: "Скачано: {name}. Контрольная сумма SHA-256: {sha}",
   dl_err: "Не скачалось: {e}",
@@ -392,6 +402,7 @@ const T = {
   n_no_seal_netns: "Печать сети здесь не встала ({why}). Сеть у модели отнята другим способом — пустым сетевым пространством.",
   n_no_seal_open: "Печать сети не поставлена ({why}): песочницу держит только устройство ворот.",
   n_model_sandbox_unavailable: "Bubblewrap: {why}",
+  n_model_integrity: "GGUF: {why}",
   n_closed_impossible: "Локальную модель здесь не запустить: системе нечем отнять у неё сеть ({why}).",
   n_cloud_failed: "Облако не ответило: {why}. Агент получил «модель молчит».",
   n_host_crash: "Сбой программы экрана:\n{why}",
@@ -414,6 +425,9 @@ const T = {
   local_noseal: "Local models require working Bubblewrap (bwrap): {why}.",
   cloud_explain: "The model is at a provider or in a separate program on this computer (Ollama, LM Studio). The agent's questions reach it over the network — each one is paid for from the agent's budget and logged before it is sent. The sandbox itself has no network.",
   found: "Found in the models folder:", nofound: "The models folder is empty. Give the path to your file or download one by link.",
+  gguf_hash: "Expected SHA-256", gguf_size: "Expected size in bytes",
+  gguf_source: "Use the SHA-256 and size from a trusted release. You can leave these fields empty for models in the signed catalog.",
+  gguf_need: "Enter the trusted SHA-256 and model size in bytes",
   path_l: "Or the path to a .gguf file on this computer", url_l: "Or download by link — e.g. from huggingface.co",
   download: "Download", dl_going: "Downloading {name}: {pct}", dl_done: "Downloaded: {name}. SHA-256 checksum: {sha}",
   dl_err: "Download failed: {e}",
@@ -490,6 +504,7 @@ const T = {
   n_no_seal_netns: "The network seal did not take here ({why}). The model's network is taken away another way — by an empty network namespace.",
   n_no_seal_open: "No network seal ({why}): only the gates hold the sandbox.",
   n_model_sandbox_unavailable: "Bubblewrap: {why}",
+  n_model_integrity: "GGUF: {why}",
   n_closed_impossible: "A local model cannot run here: the system cannot take its network away ({why}).",
   n_cloud_failed: "The cloud did not answer: {why}. The agent got “the model is silent”.",
   n_host_crash: "The screen program failed:\n{why}",
@@ -823,7 +838,7 @@ async function download() {
   if (!url) return;
   $("btnDl").disabled = true; $("dlOut").className = "out";
   let name;
-  try { name = (await api("/api/download", {url})).name; }
+  try { name = (await api("/api/download", {url, model_integrity: modelIntegrity()})).name; }
   catch (e) { $("dlOut").className = "out bad"; $("dlOut").textContent = t("dl_err", {e: e.message}); $("btnDl").disabled = false; return; }
   const timer = setInterval(async () => {
     const d = (await api("/api/downloads"))[name];
@@ -834,7 +849,7 @@ async function download() {
       return;
     }
     clearInterval(timer); $("btnDl").disabled = false;
-    if (d.state === "ошибка") { $("dlOut").className = "out bad"; $("dlOut").textContent = t("dl_err", {e: d.error}); return; }
+    if (d.state === "ошибка") { $("dlOut").className = "out bad"; $("dlOut").textContent = t("dl_err", {e: (LANG === "en" && d.error_en) || d.error}); return; }
     $("dlOut").className = "out good"; $("dlOut").textContent = t("dl_done", {name, sha: d.sha256});
     INFO = await api("/api/info");
     const m = INFO.models.find((x) => x.name === name); if (m) { localPick = m.path; $("path").value = ""; }
@@ -850,12 +865,14 @@ function renderPresets() {
 }
 function renderKeyHint() {
   const p = presetObj(), local = p.base.startsWith("http://127.");
-  const generic = INFO.generic_env_key && !(exchangeJob && contour === "разомкнутый");
+  const base = $("base").value.trim().replace(/\/$/, "");
+  const generic = base && base === INFO.generic_key_base.replace(/\/$/, "") && !(exchangeJob && contour === "разомкнутый");
   $("key").placeholder = local ? t("key_none") : t("key_ph");
-  $("keyOut").textContent = p.has_env_key ? t("key_env", {env: p.key_env})
+  $("keyOut").textContent = p.has_env_key && base === p.base ? t("key_env", {env: p.key_env})
     : generic ? t("key_env", {env: "PROSTRANSTVO_KEY"}) : (p.key_env ? t("key_hint", {env: p.key_env}) : "");
 }
 function onPreset() {
+  $("key").value = "";
   $("base").value = presetObj().base; $("modelList").innerHTML = ""; $("checkOut").textContent = "";
   checkReady();
 }
@@ -935,6 +952,11 @@ function countWords() {
 }
 
 function modelPath() { return $("path").value.trim() || localPick; }
+function modelIntegrity() {
+  const sha256 = $("ggufHash").value.trim(), size = Number($("ggufSize").value.trim());
+  if (/^[a-f0-9]{64}$/i.test(sha256) && Number.isSafeInteger(size) && size >= 4) return {sha256, size};
+  return null;
+}
 function checkReady() {
   if (!INFO) return;
   renderKeyHint();
@@ -947,6 +969,8 @@ function checkReady() {
     } else if (!INFO.closed_ok) why = t("no_local");
     else if (!INFO.llama) why = t("need_engine");
     else if (!modelPath()) why = t("need_file");
+    else if (!modelIntegrity() && !INFO.gguf_catalog.includes(modelPath().split("/").pop())
+             && !INFO.models.some(m => m.path === modelPath() && m.has_reference)) why = t("gguf_need");
   } else if (!$("base").value.trim() || !$("model").value.trim()) why = t("need_cloud");
   else if (exchangeJob) {
     if (exchangeStarted === exchangeJob.id) why = t("exchange_new");
@@ -977,6 +1001,7 @@ async function start() {
     agent: agentKind === "own" ? ownPick : "встроенный", agent_lang: $("agentLang").value};
   if (contour === "сомкнутый") {
     b.model = ownWithoutModel() ? "" : modelPath();
+    if (b.model) b.model_integrity = modelIntegrity();
   } else {
     Object.assign(b, cloudBody());
     if (exchangeJob) {
@@ -1020,7 +1045,7 @@ function clock(s) { s = Math.max(0, Math.round(s)); return s < 60 ? `${s} ${sec(
 const live = (r) => ["готовится", "идёт", "проверка законов"].includes(r.state);
 
 function render(r) {
-  $("notes").innerHTML = r.notes.map((n) => `<div class="note ${["cloud_failed", "host_crash", "closed_impossible", "model_sandbox_unavailable"].includes(n.code) ? "bad" : "warn"}">${esc(t("n_" + n.code, {why: n.why}))}</div>`).join("");
+  $("notes").innerHTML = r.notes.map((n) => `<div class="note ${["cloud_failed", "host_crash", "closed_impossible", "model_sandbox_unavailable", "model_integrity"].includes(n.code) ? "bad" : "warn"}">${esc(t("n_" + n.code, {why: (LANG === "en" && n.why_en) || n.why}))}</div>`).join("");
   $("statusCard").classList.remove("hidden");
   const st = {"проверка законов": "st_check", "готово": "st_done", "остановлено": "st_stopped", "ошибка": "st_error"}[r.state] || "st_run";
   $("state").textContent = t(st);
@@ -1160,7 +1185,8 @@ async function init() {
   for (const b of $("seg").children) b.onclick = () => setContour(b.dataset.c);
   $("words").oninput = () => { if (scenario !== "own") { scenario = "own"; renderScenarios(); } countWords(); };
   $("path").oninput = () => { if ($("path").value.trim()) { localPick = ""; renderLocal(); } checkReady(); };
-  for (const id of ["base", "model", "key"]) $(id).oninput = checkReady;
+  $("base").oninput = () => { $("key").value = ""; checkReady(); };
+  for (const id of ["model", "key", "ggufHash", "ggufSize"]) $(id).oninput = checkReady;
   $("btnDl").onclick = download; $("btnModels").onclick = listModels; $("btnCheck").onclick = checkCloud;
   $("btnStart").onclick = start; $("btnStop").onclick = stop;
   $("btnExchangeNew").onclick = prepareExchange;

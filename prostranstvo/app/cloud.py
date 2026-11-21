@@ -23,8 +23,10 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
@@ -58,6 +60,34 @@ ANTHROPIC_VERSION = "2023-06-01"
 RETRY_CODES = (408, 409, 425, 429, 500, 502, 503, 504, 529)
 
 
+ADDRESS_ERROR = (
+    "нужен адрес https:// или локальный http:// без логина, параметров и фрагмента",
+    "use an https:// or loopback http:// address without credentials, a query or a fragment",
+)
+LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+
+def cloud_destination(base: str) -> tuple[str, str, int, str]:
+    """Return the origin and API prefix used for both credential matching and requests."""
+    if not base or any(ord(c) <= 32 or ord(c) == 127 or c in "\\?#" for c in base):
+        raise ValueError(*ADDRESS_ERROR)
+    try:
+        url = urllib.parse.urlsplit(base)
+        host, port = url.hostname, url.port
+    except ValueError as exc:
+        raise ValueError(*ADDRESS_ERROR) from exc
+    if not host or not re.fullmatch(r"[a-z0-9.:-]+", host):
+        raise ValueError(*ADDRESS_ERROR)
+    authority = f"[{host}]" if ":" in host else host
+    if port is not None:
+        authority = f"{authority}:{port}"
+    if url.netloc.lower() != authority or port == 0:
+        raise ValueError(*ADDRESS_ERROR)
+    if url.scheme != "https" and not (url.scheme == "http" and host in LOOPBACK):
+        raise ValueError(*ADDRESS_ERROR)
+    return url.scheme, host, port or (443 if url.scheme == "https" else 80), url.path.rstrip("/")
+
+
 class CloudError(Exception):
     """Облако не ответило. Текст — для человека."""
 
@@ -75,9 +105,13 @@ class Cloud:
     _send_temperature: bool = True
 
     def __post_init__(self):
-        self.base = self.base.rstrip("/")
+        self.base = self.base.strip().rstrip("/")
+        cloud_destination(self.base)
         if self.kind not in ("openai", "anthropic"):
             raise ValueError("протокол — openai или anthropic")
+        if not isinstance(self.key, str) or (self.key and not (
+                self.key.isascii() and self.key.isprintable() and " " not in self.key)):
+            raise ValueError("облако: ключ — латинские буквы, цифры и знаки, без пробелов")
 
 
 def _is_openai_astra(c: Cloud) -> bool:
@@ -120,9 +154,10 @@ def _request(c: Cloud, method: str, path: str, body: dict | None, timeout: float
     req = urllib.request.Request(c.base + path, data=data, method=method, headers=headers)
     # Своя машина (Ollama, LM Studio) — мимо прокси из окружения: прокси
     # 127.0.0.1 пользователя не знает.
-    local = c.base.startswith(("http://127.0.0.1", "http://localhost"))
+    scheme, host, _, _ = cloud_destination(c.base)
+    local = scheme == "http" and host in LOOPBACK
     handlers = [urllib.request.ProxyHandler({})] if local else []
-    if one_shot:
+    if one_shot or c.key:
         handlers.append(_NoRedirect())
     opener = urllib.request.build_opener(*handlers)
     deadline = time.monotonic() + timeout
