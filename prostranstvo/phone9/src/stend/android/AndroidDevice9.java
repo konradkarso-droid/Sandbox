@@ -27,6 +27,8 @@ import java.util.Map;
 final class AndroidDevice9 implements Device9 {
     private final Context ctx;
     final AndroidDevice base;
+    private static final String VERIFIED = "служб с отдельным UID и без доступа к контрольному файлу";
+    private Json.M isolation = new Json.M().with(VERIFIED, 0);
 
     AndroidDevice9(Context ctx) {
         this.ctx = ctx.getApplicationContext();
@@ -68,8 +70,8 @@ final class AndroidDevice9 implements Device9 {
         else if (exe.equals(lib("libserve9b.so"))) variant = 1;
         else throw new IOException("неизвестный модуль модели");
         switch (command.get(1)) {
-            case "--stub": return new IsolatedModel(ctx, variant, 0, null, 2, 2);
-            case "--probe-net": return new IsolatedModel(ctx, variant, 1, null, 2, 2);
+            case "--stub": return launchModel(variant, 0, null, 2, 2);
+            case "--probe-net": return launchModel(variant, 1, null, 2, 2);
             case "--gguf":
                 if (command.size() < 3 || command.size() % 2 == 0 || !command.get(2).equals(modelFile().getPath())) {
                     throw new IOException("модель должна быть проверенным файлом стенда");
@@ -80,8 +82,19 @@ final class AndroidDevice9 implements Device9 {
                     else if (command.get(i).equals("--threads-batch")) batch = Integer.parseInt(command.get(i + 1));
                     else throw new IOException("неизвестный параметр модели");
                 }
-                return new IsolatedModel(ctx, variant, 2, modelFile(), threads, batch);
+                return launchModel(variant, 2, modelFile(), threads, batch);
             default: throw new IOException("неизвестный режим модели");
+        }
+    }
+
+    private Process launchModel(int variant, int mode, File weights, int threads, int batch) throws IOException {
+        try {
+            Process model = new IsolatedModel(ctx, variant, mode, weights, threads, batch);
+            isolation.with(VERIFIED, ((Number) isolation.get(VERIFIED)).intValue() + 1);
+            return model;
+        } catch (IOException e) {
+            isolation.with("последний сбой запуска службы", e.getMessage());
+            throw e;
         }
     }
 
@@ -131,7 +144,9 @@ final class AndroidDevice9 implements Device9 {
     }
 
     public Json.M describe() {
+        isolation = new Json.M().with(VERIFIED, 0);
         Json.M d = base.describe();
+        d.with("изоляция модели", isolation);
         d.with("hardware", Build.HARDWARE);
         if (Build.VERSION.SDK_INT >= 31) d.with("soc", Build.SOC_MANUFACTURER + " " + Build.SOC_MODEL);
         return d;

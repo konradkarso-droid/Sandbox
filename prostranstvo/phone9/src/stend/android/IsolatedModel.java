@@ -17,6 +17,7 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.Files;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -54,50 +55,37 @@ final class IsolatedModel extends Process implements ServiceConnection {
             throw new IOException("запуск модели прерван", e);
         } catch (IOException | RemoteException | RuntimeException e) {
             destroy();
-            throw new IOException("не запустить модель с отдельным Android UID", e);
+            throw new IOException("не запустить изолированную модель: " + e.getMessage(), e);
         }
     }
 
     private void identity() throws IOException, RemoteException {
+        File fixture = File.createTempFile(ModelService.CHECK_PREFIX, ".tmp", context.getCacheDir());
         Parcel data = Parcel.obtain(), reply = Parcel.obtain();
         try {
             data.writeInterfaceToken(ModelService.INTERFACE);
+            data.writeString(fixture.getName());
             if (!remote.transact(ModelService.IDENTITY, data, reply, 0)) throw new IOException("UID модели не получен");
             reply.readException();
             int uid = reply.readInt();
             pid = reply.readInt();
             if (uid == android.os.Process.myUid() || pid <= 0) throw new IOException("модель вне изоляции");
             remote.linkToDeath(() -> complete(1), 0);
+            if (reply.readInt() != 1) throw new IOException("служба модели смогла открыть контрольный файл приложения");
         } finally {
             data.recycle();
             reply.recycle();
+            Files.deleteIfExists(fixture.toPath());
         }
     }
 
     private void start(int variant, int mode, File weights, int threads, int batch) throws IOException, RemoteException {
-        ResultReceiver result = new ResultReceiver(null) {
-            @Override protected void onReceiveResult(int code, Bundle ignored) { complete(code == 0 ? 0 : 1); }
-        };
+        ResultReceiver result = new ExitReceiver(this);
         ParcelFileDescriptor[] requests = ParcelFileDescriptor.createPipe();
         input = new ParcelFileDescriptor.AutoCloseOutputStream(requests[1]);
         try (ParcelFileDescriptor reader = requests[0]) {
             ParcelFileDescriptor[] responses = ParcelFileDescriptor.createPipe();
-            output = new FilterInputStream(new ParcelFileDescriptor.AutoCloseInputStream(responses[0])) {
-                private int frameBytes;
-
-                private int check(int b) throws IOException {
-                    if (b == '\n') frameBytes = 0;
-                    else if (b >= 0 && ++frameBytes >= 16 * 1024) throw new IOException("слишком длинный ответ модели");
-                    return b;
-                }
-
-                @Override public int read() throws IOException { return check(in.read()); }
-                @Override public int read(byte[] buffer, int offset, int length) throws IOException {
-                    int count = in.read(buffer, offset, length);
-                    for (int i = 0; i < count; i++) check(buffer[offset + i] & 0xff);
-                    return count;
-                }
-            };
+            output = new BoundedOutput(new ParcelFileDescriptor.AutoCloseInputStream(responses[0]));
             try (ParcelFileDescriptor writer = responses[1];
                  ParcelFileDescriptor model = mode == 2
                          ? ParcelFileDescriptor.open(weights, ParcelFileDescriptor.MODE_READ_ONLY) : null) {
@@ -119,6 +107,37 @@ final class IsolatedModel extends Process implements ServiceConnection {
                     reply.recycle();
                 }
             }
+        }
+    }
+
+    private static final class ExitReceiver extends ResultReceiver {
+        private final IsolatedModel model;
+
+        ExitReceiver(IsolatedModel model) {
+            super(null);
+            this.model = model;
+        }
+
+        @Override protected void onReceiveResult(int code, Bundle ignored) { model.complete(code == 0 ? 0 : 1); }
+    }
+
+    private static final class BoundedOutput extends FilterInputStream {
+        private int frameBytes;
+
+        BoundedOutput(InputStream input) { super(input); }
+
+        private int check(int b) throws IOException {
+            if (b == '\n') frameBytes = 0;
+            else if (b >= 0 && ++frameBytes >= 16 * 1024) throw new IOException("слишком длинный ответ модели");
+            return b;
+        }
+
+        @Override public int read() throws IOException { return check(in.read()); }
+
+        @Override public int read(byte[] buffer, int offset, int length) throws IOException {
+            int count = in.read(buffer, offset, length);
+            for (int i = 0; i < count; i++) check(buffer[offset + i] & 0xff);
+            return count;
         }
     }
 
