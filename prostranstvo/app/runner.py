@@ -29,18 +29,20 @@ import functools
 import importlib.util
 import json
 import threading
+import tempfile
 import time
 import traceback
 import zipfile
 from collections import Counter
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field
 from importlib.metadata import version
 from pathlib import Path
 
 from app import seal as sealmod
-from app import model_sandbox, texts
+from app import model_sandbox, texts, weights
 from app.bridge import Bridge, question_mark
-from app.cloud import Cloud
+from app.cloud import Cloud, cloud_destination
 from app.exchange import valid_session
 from app.gateway import Consent, Gateway
 from core.model_world import W6
@@ -159,6 +161,8 @@ class Settings:
     exchange: str | None = None
     agent_lang: str = "ru"             # язык правил встроенного агента: «ru» | «en»
 
+    model_integrity: weights.Reference | None = None
+
     def public(self) -> dict:
         """Настройки без ключа — для файлов прогона и экрана."""
         d = asdict(self)
@@ -225,6 +229,10 @@ def settings_from(raw: dict) -> Settings:
             raise Refusal("выбери файл модели (GGUF)", "choose a model file (GGUF)")
         if s.model and s.model != INSTALL_CHECK:
             s.model = str(model_path(s.model))
+            try:
+                s.model_integrity = weights.Reference.parse(raw.get("model_integrity"))
+            except weights.IntegrityError as exc:
+                raise Refusal(*exc.args) from exc
             if importlib.util.find_spec("llama_cpp") is None:
                 raise Refusal("не установлен движок локальных моделей: в терминале `python3 start.py --local`",
                               "the local model engine is not installed: run `python3 start.py --local`")
@@ -234,16 +242,18 @@ def settings_from(raw: dict) -> Settings:
             raise Refusal("облако: нужны протокол, адрес и модель", "cloud: protocol, address and model are needed")
         if c.get("kind") not in ("openai", "anthropic"):
             raise Refusal("облако: протокол — OpenAI или Anthropic", "cloud: the protocol is OpenAI or Anthropic")
-        if not str(c.get("base", "")).startswith(("https://", "http://127.0.0.1", "http://localhost")):
-            raise Refusal("облако: адрес начинается с https:// (или http://127.0.0.1 для сервиса на этом компьютере)",
-                          "cloud: the address starts with https:// (or http://127.0.0.1 for a service on this computer)")
+        base = str(c.get("base", "")).strip()
+        try:
+            cloud_destination(base)
+        except ValueError as exc:
+            raise Refusal(*exc.args) from exc
         if not str(c.get("model", "")).strip():
             raise Refusal("облако: укажи имя модели", "cloud: enter the model name")
         key = str(c.get("key") or "")
         if key and not (key.isascii() and key.isprintable() and " " not in key):
             raise Refusal("облако: ключ — латинские буквы, цифры и знаки, без пробелов",
                           "cloud: the key is Latin letters, digits and signs, without spaces")
-        s.cloud = {"kind": c["kind"], "base": str(c["base"]).strip(), "model": str(c["model"]).strip(), "key": key,
+        s.cloud = {"kind": c["kind"], "base": base, "model": str(c["model"]).strip(), "key": key,
                    "max_tokens": _int(c, "max_tokens", 16, 32768, max(16, s.answer // 2),
                                       "токенов на ответ", "tokens per answer")}
     return s
@@ -471,7 +481,8 @@ class Run(threading.Thread):
     # -- ход прогона
     def run(self) -> None:
         try:
-            self._run()
+            with ExitStack() as resources:
+                self._run(resources)
         except Exception:
             with self.lock:
                 self.state = "ошибка"
@@ -488,11 +499,12 @@ class Run(threading.Thread):
                         self.notes.append({"code": "host_crash", "why": f"не сохранён отчёт обмена: {exc}"})
             self.finished.set()
 
-    def _run(self) -> None:
+    def _run(self, resources: ExitStack) -> None:
         s = self.s
         closed = s.contour == "сомкнутый"
         use_model = bool(s.model) if closed else True
         live_model = closed and use_model and s.model != INSTALL_CHECK
+        model_argv = None
         if self.consent or not use_model:
             why = sealmod.check(False)
             plan = ({"seal": "сомкнутый", "net": "gateway" if self.consent else None, "allow_net": False}
@@ -504,6 +516,25 @@ class Run(threading.Thread):
                 with self.lock:
                     self.state = "ошибка"
                     self.notes.append({"code": "model_sandbox_unavailable", "why": why})
+                return
+            with self.lock:
+                self._act("loading_model")
+            try:
+                if s.model_integrity is None:
+                    raise weights.IntegrityError(*weights.MISSING_REFERENCE)
+                staging = resources.enter_context(tempfile.TemporaryDirectory(prefix="gguf-"))
+                verified = weights.stage_local(Path(s.model), Path(staging), s.model_integrity,
+                                               cancelled=lambda: self.stop_requested)
+                model_argv = model_sandbox.command(verified)
+            except (weights.IntegrityError, OSError) as exc:
+                with self.lock:
+                    self.state = "остановлено" if self.stop_requested else "ошибка"
+                    if self.stop_requested:
+                        self._act("stopped")
+                    else:
+                        self.notes.append({"code": "model_integrity", "why": str(exc.args[0]),
+                                           "why_en": str(exc.args[-1]) if isinstance(exc, weights.IntegrityError)
+                                           else str(exc)})
                 return
             plan = {"seal": s.contour if sealmod.check(False) is None else None,
                     "net": "bwrap", "allow_net": False}
@@ -530,7 +561,7 @@ class Run(threading.Thread):
             spec = self.bridge.specification()
         else:
             if closed:
-                mode = ["--script", str(INSTALL_SCRIPT)] if s.model == INSTALL_CHECK else ["--gguf", s.model]
+                mode = ["--script", str(INSTALL_SCRIPT)] if s.model == INSTALL_CHECK else ["--gguf", "/model/weights.gguf"]
             else:
                 c = s.cloud
                 self.bridge = Bridge(Cloud(c["kind"], c["base"], c["model"], c["key"], c["max_tokens"]), timeout,
@@ -539,7 +570,7 @@ class Run(threading.Thread):
             spec = ({"mode": mode, "timeout": timeout, "net": plan["net"], "allow_net": plan["allow_net"]}
                     if use_model else None)
             if live_model:
-                spec["sandbox_argv"] = model_sandbox.command(Path(s.model))
+                spec["sandbox_argv"] = model_argv
         cfg = {**CFG, "model": (2 if closed else 1) if use_model else 0, "budget": s.budget,
                "model_answer": s.answer, "task_seed": s.seed}
         if self.consent:

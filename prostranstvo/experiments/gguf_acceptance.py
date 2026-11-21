@@ -1,7 +1,7 @@
 """Положительная приёмка Bubblewrap и живой GGUF на отдельном Linux-хосте.
 
 Запускать обычным пользователем из prostranstvo:
-    python3 -m experiments.gguf_acceptance /путь/к/доверенной.gguf
+    python3 -m experiments.gguf_acceptance /путь/к/доверенной.gguf --sha256 SHA256 --size BYTES
 
 Проба видит только заявленные границы текущей конфигурации Linux.
 Она создаёт временные файлы пользователя и читает указанные веса.
@@ -16,7 +16,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-from app import model_sandbox
+from app import model_sandbox, weights
 from sandbox.model9 import ModelLink
 
 PROBE = """
@@ -73,10 +73,14 @@ def check(model: Path, timeout: float) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("model", type=Path)
+    parser.add_argument("--sha256", required=True)
+    parser.add_argument("--size", required=True, type=int)
     parser.add_argument("--timeout", type=float, default=60)
     args = parser.parse_args()
     print("llama-cpp-python", version("llama-cpp-python"), flush=True)
-    size = check(args.model, args.timeout)
+    reference = weights.Reference.parse({"sha256": args.sha256, "size": args.size})
+    with tempfile.TemporaryDirectory(prefix="gguf-acceptance-") as staging:
+        size = check(weights.stage_local(args.model, Path(staging), reference), args.timeout)
     print("BWRAP_LIVE_GGUF_OK", size, "bytes", flush=True)
 
 

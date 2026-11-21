@@ -62,7 +62,7 @@ final class AndroidDevice9 implements Device9 {
     }
 
     public File modelFile() {
-        return new File(new File(ctx.getFilesDir(), "model"), "model.gguf");
+        return new File(new File(ctx.getFilesDir(), "model"), "verified.gguf");
     }
 
     public Map<String, String> extraEnv() {

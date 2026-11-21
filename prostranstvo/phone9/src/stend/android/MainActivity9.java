@@ -3,14 +3,12 @@ package stend.android;
 import android.app.Activity;
 import android.content.ContentValues;
 import android.content.Intent;
-import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
-import android.provider.OpenableColumns;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -23,8 +21,6 @@ import stend.core.Stand;
 import stend9.core.Stand9;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.text.SimpleDateFormat;
@@ -151,67 +147,19 @@ public final class MainActivity9 extends Activity implements Stand.Listener {
     protected void onActivityResult(int req, int code, Intent data) {
         super.onActivityResult(req, code, data);
         if (req != PICK || code != RESULT_OK || data == null || data.getData() == null) return;
-        final Uri uri = data.getData();
-        long size = -1;
-        String name = "?";
-        try (Cursor c = getContentResolver().query(uri, null, null, null, null)) {
-            if (c != null && c.moveToFirst()) {
-                int si = c.getColumnIndex(OpenableColumns.SIZE), ni = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                if (si >= 0 && !c.isNull(si)) size = c.getLong(si);
-                if (ni >= 0) name = c.getString(ni);
-            }
-        } catch (Exception ignored) {
-        }
-        final File dst = dev.modelFile();
-        //noinspection ResultOfMethodCallIgnored
-        dst.getParentFile().mkdirs();
-        long free = dst.getParentFile().getUsableSpace() + (dst.isFile() ? dst.length() : 0);
-        if (size > 0 && free < size + (200L << 20)) {
-            status.setText("Мало места: нужно " + ((size >> 20) + 200) + " МиБ, свободно " + (free >> 20) + " МиБ.");
-            return;
-        }
-        final long total = size;
-        final String shown = name;
-        copying = true;
-        start.setEnabled(false);
-        pick.setEnabled(false);
-        status.setText("Копирую модель «" + shown + "»…");
-        new Thread(() -> {
-            File part = new File(dst.getPath() + ".part");
-            String why;
-            try (InputStream in = getContentResolver().openInputStream(uri); FileOutputStream o = new FileOutputStream(part)) {
-                if (in == null) throw new IllegalStateException("файл не открылся");
-                byte[] buf = new byte[1 << 20];
-                long done = 0, shownAt = 0;
-                int n;
-                while ((n = in.read(buf)) > 0) {
-                    o.write(buf, 0, n);
-                    done += n;
-                    if (done - shownAt >= (50L << 20)) {
-                        shownAt = done;
-                        final long d = done;
-                        runOnUiThread(() -> progress.setText((d >> 20) + (total > 0 ? " из " + (total >> 20) : "") + " МиБ"));
-                    }
-                }
-                o.getFD().sync();
-                if (dst.exists() && !dst.delete()) throw new IllegalStateException("старая модель не удалилась");
-                if (!part.renameTo(dst)) throw new IllegalStateException("не переименовать файл");
-                why = "Модель скопирована: " + (dst.length() >> 20) + " МиБ. Нажмите «Начать».";
-            } catch (Exception e) {
-                //noinspection ResultOfMethodCallIgnored
-                part.delete();
-                why = "Не получилось скопировать модель: " + e.getMessage();
-            }
-            final String w = why;
-            runOnUiThread(() -> {
-                copying = false;
-                start.setEnabled(true);
-                pick.setEnabled(true);
-                progress.setText("");
-                status.setText(w);
-                say(w);
-            });
-        }, "копия модели").start();
+        AndroidModelImport.prompt(this, data.getData(), dev.modelFile(), () -> {
+            copying = true;
+            start.setEnabled(false);
+            pick.setEnabled(false);
+            status.setText("Проверяю и копирую модель…");
+        }, progress::setText, message -> {
+            copying = false;
+            start.setEnabled(true);
+            pick.setEnabled(true);
+            progress.setText("");
+            status.setText(message);
+            say(message);
+        });
     }
 
     // ---- прогон
