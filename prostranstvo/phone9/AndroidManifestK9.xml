@@ -11,6 +11,8 @@
         android:label="Калибровка 9б"
         android:allowBackup="false"
         android:extractNativeLibs="true">
+        <service android:name="stend.android.ModelService" android:isolatedProcess="true"
+            android:exported="false" />
         <activity
             android:name="stend.android.MainActivityK9"
             android:exported="true"

@@ -15,7 +15,7 @@ mod world;
 use json::json_bytes;
 use serde_json::{Value, json};
 use settings::Settings;
-use std::io::{BufRead, Write};
+use std::io::Write;
 use std::path::PathBuf;
 use world::World;
 use wasmi::{Engine, Store};
@@ -227,6 +227,8 @@ fn main() {
     let net = match model_net.as_str() {
         "netns" => model::Net::Netns,
         "probe" => model::Net::Probe,
+        #[cfg(target_os = "android")]
+        "android-service" => model::Net::IsolatedService,
         _ => {
             eprintln!("--model-net: netns или probe");
             std::process::exit(2);
@@ -242,8 +244,9 @@ fn main() {
     let mut ex = Exec { root: PathBuf::from(root), kind6, run_counter: 0, engine: runtime::engine(), stores: None };
     let stdin = std::io::stdin();
     let mut out = std::io::stdout().lock();
-    for line in stdin.lock().lines() {
-        let Ok(line) = line else { break };
+    loop {
+        let mut line = String::new();
+        if !matches!(stdin.read_line(&mut line), Ok(n) if n != 0) { break; }
         if line.trim().is_empty() {
             continue;
         }

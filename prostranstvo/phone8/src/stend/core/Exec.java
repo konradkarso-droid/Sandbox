@@ -32,7 +32,15 @@ public final class Exec implements AutoCloseable {
     private final BufferedWriter in;
     private final BufferedReader out;
     final File root;
+    private final ModelExchange models;
     public final long pid;
+
+    public interface ModelExchange extends AutoCloseable {
+        String ask(int contour, String query, int limit) throws IOException;
+        int alive();
+        boolean busy();
+        @Override void close();
+    }
 
     public Exec(String exe, File root, String kind) throws IOException {
         this(exe, root, kind, java.util.Collections.<String>emptyList(), java.util.Collections.<String, String>emptyMap());
@@ -44,7 +52,13 @@ public final class Exec implements AutoCloseable {
      * обычных (MODEL_SERVE — программа процесса модели, контракт §18.1).
      */
     public Exec(String exe, File root, String kind, List<String> extra, Map<String, String> env) throws IOException {
+        this(exe, root, kind, extra, env, null);
+    }
+
+    public Exec(String exe, File root, String kind, List<String> extra, Map<String, String> env,
+                ModelExchange models) throws IOException {
         this.root = root;
+        this.models = models;
         if (!root.isDirectory() && !root.mkdirs()) throw new IOException("не создать папку " + root);
         File[] old = root.listFiles();
         if (old != null) for (File f : old) if (f.getName().startsWith("run")) delete(root, f);
@@ -61,6 +75,15 @@ public final class Exec implements AutoCloseable {
         String first = out.readLine();
         if (first == null) throw new IOException("исполнитель не запустился: " + exe);
         pid = Long.parseLong(first.trim());
+        if (models != null) {
+            Thread watch = new Thread(() -> {
+                try { p.waitFor(); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                finally { models.close(); }
+            }, "остановка моделей исполнителя");
+            watch.setDaemon(true);
+            watch.start();
+        }
     }
 
     /** Ответ исполнителя; при статусе не «ok» — исключение с причиной. */
@@ -81,6 +104,19 @@ public final class Exec implements AutoCloseable {
         }
         @SuppressWarnings("unchecked")
         Map<String, Object> r = (Map<String, Object>) Json.parse(line);
+        while (models != null && r.containsKey("model")) {
+            int contour = ((Number) r.get("model")).intValue();
+            int max = ((Number) r.get("max")).intValue();
+            String answer = models.ask(contour, (String) r.get("q"), max);
+            in.write(Json.str(new Json.M().with("a", answer)));
+            in.write('\n');
+            in.flush();
+            String next = out.readLine();
+            if (next == null) throw new IOException("исполнитель завершился на «" + cmd + "»");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> response = (Map<String, Object>) Json.parse(next);
+            r = response;
+        }
         if (!"ok".equals(r.get("status"))) throw new IOException("исполнитель: " + r.get("status") + ": " + r.get("value"));
         return r.get("value");
     }
@@ -129,6 +165,14 @@ public final class Exec implements AutoCloseable {
         return p.isAlive();
     }
 
+    public int isolatedModelsAlive() {
+        return models == null ? -1 : models.alive();
+    }
+
+    public boolean isolatedModelBusy() {
+        return models != null && models.busy();
+    }
+
     @Override
     public void close() {
         try {
@@ -140,6 +184,8 @@ public final class Exec implements AutoCloseable {
         } catch (InterruptedException e) {
             p.destroyForcibly();
             Thread.currentThread().interrupt();
+        } finally {
+            if (models != null) models.close();
         }
     }
 
