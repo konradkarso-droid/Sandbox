@@ -91,7 +91,7 @@ def test_exchange_wasm_cannot_grow_beyond_two_pages(tmp_path):
     assert run["laws"]["И27"][0] != BROKEN
 
 
-def test_exchange_fuel_stop_leaves_draft_unpublished(tmp_path):
+def test_exchange_fuel_stop_leaves_draft_unpublished(isolated_executor, tmp_path):
     from app import runner
     from app.exchange import ExchangeJob
 
@@ -185,7 +185,7 @@ def completed_job(tmp_path):
     return job, proposal["id"]
 
 
-def test_outbox_approval_is_per_result_and_repeat_finishes_receipt(tmp_path):
+def test_outbox_approval_is_per_result_and_repeat_finishes_receipt(isolated_executor, tmp_path):
     job, ident = completed_job(tmp_path)
     outbox = job.root / "outbox"
     assert not list(outbox.iterdir())
@@ -205,7 +205,7 @@ def test_outbox_approval_is_per_result_and_repeat_finishes_receipt(tmp_path):
     assert job.info()["requests"][0]["published"] is True
 
 
-def test_request_is_bound_to_checked_journal(tmp_path):
+def test_request_is_bound_to_checked_journal(isolated_executor, tmp_path):
     from env.journal import Journal
 
     job, ident = completed_job(tmp_path)
@@ -217,7 +217,7 @@ def test_request_is_bound_to_checked_journal(tmp_path):
     assert not list((job.root / "outbox").iterdir())
 
 
-def test_approval_never_overwrites_different_recipient_file(tmp_path):
+def test_approval_never_overwrites_different_recipient_file(isolated_executor, tmp_path):
     job, ident = completed_job(tmp_path)
     path = job.root / "outbox" / f"{ident}-result.txt"
     path.write_bytes(b"already there")
@@ -227,18 +227,24 @@ def test_approval_never_overwrites_different_recipient_file(tmp_path):
     assert not list((job.root / "receipts").iterdir())
 
 
-def test_diagnostics_zip_excludes_unapproved_blobs(tmp_path, monkeypatch):
+def test_diagnostics_zip_excludes_unapproved_blobs(isolated_executor, tmp_path, monkeypatch):
     from zipfile import ZipFile
     from app import runner
 
     job, _ = completed_job(tmp_path)
     monkeypatch.setattr(runner, "RUNS", job.run.parent)
+    fixture = b"PRIVATE-TRANSCRIPT-FIXTURE"
+    (job.workdir / "journal5.jsonl").write_bytes(fixture)
     with ZipFile(runner.zip_run(job.id)) as archive:
-        assert any(name.endswith("journal5.jsonl") for name in archive.namelist())
+        assert archive.namelist() == [f"{job.id}/summary.json"]
+        assert fixture not in archive.read(archive.namelist()[0])
+    with ZipFile(runner.zip_run(job.id, detailed=True)) as archive:
+        journal, = [name for name in archive.namelist() if name.endswith("journal5.jsonl")]
+        assert archive.read(journal) == fixture
         assert all("exchange-state" not in name for name in archive.namelist())
 
 
-def test_builtin_agent_can_use_file_tools_with_local_model_transport(tmp_path, monkeypatch):
+def test_builtin_agent_can_use_file_tools_with_local_model_transport(isolated_executor, tmp_path, monkeypatch):
     from app import runner
     from app.exchange import ExchangeJob
 
@@ -269,7 +275,7 @@ def test_builtin_agent_can_use_file_tools_with_local_model_transport(tmp_path, m
     assert list((job.root / "outbox").iterdir()) == []
 
 
-def test_http_workflow_from_session_creation_to_download(tmp_path, monkeypatch):
+def test_http_workflow_from_session_creation_to_download(isolated_executor, tmp_path, monkeypatch):
     import http.server
     import json
     import threading

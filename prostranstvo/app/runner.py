@@ -25,7 +25,9 @@
 
 from __future__ import annotations
 
-import functools
+import os
+import re
+import secrets
 import importlib.util
 import json
 import threading
@@ -39,18 +41,16 @@ from dataclasses import asdict, dataclass, field
 from importlib.metadata import version
 from pathlib import Path
 
-from app import seal as sealmod
-from app import model_sandbox, texts, weights
-from app.bridge import Bridge, question_mark
+from app import model_sandbox, texts, weights, worker
+from app.bridge import Bridge, LocalModels, question_mark
 from app.cloud import Cloud, cloud_destination
 from app.exchange import valid_session
 from app.gateway import Consent, Gateway
+from app.worker import IsolatedDriver
 from core.model_world import W6
-from env.exchange import digest, input_manifest, pack_json, put_private
+from env.exchange import digest, input_manifest, is_digest, pack_json, put_private
 from experiments.agents9 import build as agent_build
 from sandbox.agent_protocol import CFG, first_line, move_of
-from sandbox.model9 import can_unshare
-from sandbox.process5 import Driver
 from sandbox.run_session import run_contours
 from verification import answer_observer, exchange_observer, observer5b
 from verification.observer5 import BROKEN, HOLDS, NA, read_journal
@@ -109,24 +109,26 @@ def own_agent_check(data: bytes) -> dict:
     загрузит модуль или откажет исполнитель (закон И23р). Модуль — байты
     WebAssembly или текст WAT. Возвращает {"ok": True, "imports", "exports"}
     или {"ok": False, "ru", "en"} с причиной."""
-    import wasmtime
     if len(data) > OWN_MAX:
         return {"ok": False, "ru": f"модуль больше {OWN_MAX // 1024} КБ", "en": f"the module is over {OWN_MAX // 1024} KB"}
     try:
         source = data if data[:4] == b"\0asm" else data.decode("utf-8")
-        m = wasmtime.Module(wasmtime.Engine(), source)
-    except Exception as e:
-        why = str(e).splitlines()[0][:200]
+        result = worker.inspect(source)
+    except (RuntimeError, OSError, ValueError, EOFError) as exc:
+        why = str(exc).splitlines()[0][:200]
+        return {"ok": False, "ru": f"проверка модуля недоступна: {why}",
+                "en": f"module inspection failed: {why}"}
+    if "error" in result:
+        why = result["error"]
         return {"ok": False, "ru": f"это не WebAssembly: {why}", "en": f"not WebAssembly: {why}"}
-    imports = sorted({(i.module, i.name) for i in m.imports})
+    imports = result["imports"]
     extra = [f"{a}.{b}" for a, b in imports if (a, b) not in OWN_IMPORTS]
     if extra:
         return {"ok": False, "ru": "чужие импорты: " + ", ".join(extra) + " — можно только env.call и env.spawn",
                 "en": "foreign imports: " + ", ".join(extra) + " — only env.call and env.spawn are allowed"}
-    exports = {e.name: e.type for e in m.exports}
-    if not isinstance(exports.get("main"), wasmtime.FuncType):
+    if not result["main"]:
         return {"ok": False, "ru": "нет функции main", "en": "no main function"}
-    return {"ok": True, "imports": [f"{a}.{b}" for a, b in imports], "exports": sorted(exports)}
+    return {"ok": True, "imports": imports, "exports": result["exports"]}
 
 
 def own_agent_source(name: str) -> bytes | str:
@@ -260,26 +262,11 @@ def settings_from(raw: dict) -> Settings:
 
 
 def net_plan(contour: str) -> dict:
-    """Как отнять сеть (спецификация §4): печать → пустое сетевое
-    пространство → сомкнутый не запускается; разомкнутый идёт с пометкой.
-    Заметка — кодом и причиной: слова подставляет экран."""
-    why = sealmod.check(allow_unix=(contour == "разомкнутый"))
-    if why is None:
-        return {"seal": contour, "net": "probe", "allow_net": False, "note": None}
-    if contour == "сомкнутый":
-        if can_unshare():
-            return {"seal": None, "net": "netns", "allow_net": False, "note": {"code": "no_seal_netns", "why": why}}
-        return {"error": {"code": "closed_impossible", "why": why}}
-    return {"seal": None, "net": "netns", "allow_net": True, "note": {"code": "no_seal_open", "why": why}}
-
-
-class SealedDriver(Driver):
-    """Ведущий шага 5, чей исполнитель ставит себе печать сети первым делом."""
-
-    def __init__(self, *a, seal_mode: str | None = None, **kw):
-        if seal_mode:
-            self.entry = functools.partial(sealmod.sealed_main, seal_mode)
-        super().__init__(*a, **kw)
+    """Require the actual worker namespaces and network filter in every profile."""
+    why = worker.check()
+    if why is not None:
+        return {"error": {"code": "executor_sandbox_unavailable", "why": why}}
+    return {"seal": contour, "net": None}
 
 
 # ---------------------------------------------------------------- журнал → экран
@@ -338,8 +325,9 @@ class Run(threading.Thread):
             raise ValueError("обмен требует снимок, облачный обмен — подтверждение адресата и версий")
         if consent and digest(pack_json(input_manifest(files))) != consent.manifest:
             raise ValueError("файлы отличаются от разрешённого снимка")
-        self.stamp = s.exchange or time.strftime("%Y%m%d_%H%M%S")
-        self.dir = (runs_dir or RUNS) / self.stamp
+        self.stamp = s.exchange or f"{time.strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(8)}"
+        self._owns_dir = False
+        self.dir = (runs_dir or RUNS).absolute() / self.stamp
         self.lock = threading.Lock()
         self.state = "готовится"
         self.activity = {"code": "starting", "since": time.time()}
@@ -370,10 +358,7 @@ class Run(threading.Thread):
         self.activity = {"code": code, "since": time.time(), **kw}
 
     def stop(self) -> None:
-        """Остановить сразу: исполнитель убит, процессы модели умирают с ним
-        (PR_SET_PDEATHSIG), связь закрыта. Не ждёт конца хода: «стоп»,
-        который ждёт, пока модель досчитает, на долгом вопросе выглядит
-        неработающим."""
+        """Stop the executor and close its model channels immediately."""
         self.stop_requested = True
         with self.lock:
             self._act("stopping")
@@ -504,15 +489,27 @@ class Run(threading.Thread):
         closed = s.contour == "сомкнутый"
         use_model = bool(s.model) if closed else True
         live_model = closed and use_model and s.model != INSTALL_CHECK
-        model_argv = None
-        if self.consent or not use_model:
-            why = sealmod.check(False)
-            plan = ({"seal": "сомкнутый", "net": "gateway" if self.consent else None, "allow_net": False}
-                    if why is None
-                    else {"error": {"code": "closed_impossible", "why": why}})
-        elif live_model:
-            why = model_sandbox.check()
-            if why is not None:
+        plan = net_plan(s.contour)
+        if plan.get("error"):
+            with self.lock:
+                self.state = "ошибка"
+                self.notes.append(plan["error"])
+            return
+        self.dir.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            self.dir.mkdir(mode=0o700)
+        except FileExistsError:
+            with self.lock:
+                self.state = "ошибка"
+                self.notes.append({"code": "run_exists"})
+            return
+        self._owns_dir = True
+        root = self.dir / "ispolnitel"
+        root.mkdir(mode=0o700)
+        timeout = s.timeout or (300.0 if closed else 90.0)
+        spec = None
+        if live_model:
+            if why := model_sandbox.check():
                 with self.lock:
                     self.state = "ошибка"
                     self.notes.append({"code": "model_sandbox_unavailable", "why": why})
@@ -536,41 +533,26 @@ class Run(threading.Thread):
                                            "why_en": str(exc.args[-1]) if isinstance(exc, weights.IntegrityError)
                                            else str(exc)})
                 return
-            plan = {"seal": s.contour if sealmod.check(False) is None else None,
-                    "net": "bwrap", "allow_net": False}
-        else:
-            plan = net_plan(s.contour)
-        if plan.get("error"):
-            with self.lock:
-                self.state = "ошибка"
-                self.notes.append(plan["error"])
-            return
-        if plan.get("note"):
-            with self.lock:
-                self.notes.append(plan["note"])
-        timeout = s.timeout or (300.0 if closed else 90.0)
-        self.dir.mkdir(parents=True, exist_ok=self.files is None)
-        root = self.dir / "ispolnitel"
-        if self.consent:
+            self.bridge = LocalModels(model_argv, timeout)
+            plan["net"] = "bwrap"
+        elif self.consent:
             c = s.cloud
             cloud = Cloud(c["kind"], c["base"], c["model"], c["key"], c["max_tokens"])
             if self.consent.provider == "openai":
                 cloud._tokens_field = "max_completion_tokens"
                 cloud._send_temperature = False
             self.bridge = Gateway(cloud, self.consent, root / "run00001", timeout, self._on_cloud)
+            plan["net"] = "gateway"
+        elif use_model and closed:
+            self.bridge = LocalModels(model_sandbox.command(INSTALL_SCRIPT, script=True), timeout)
+            plan["net"] = "bwrap"
+        elif use_model:
+            c = s.cloud
+            self.bridge = Bridge(Cloud(c["kind"], c["base"], c["model"], c["key"], c["max_tokens"]), timeout,
+                                 self._on_cloud)
+            plan["net"] = "relay"
+        if self.bridge is not None:
             spec = self.bridge.specification()
-        else:
-            if closed:
-                mode = ["--script", str(INSTALL_SCRIPT)] if s.model == INSTALL_CHECK else ["--gguf", "/model/weights.gguf"]
-            else:
-                c = s.cloud
-                self.bridge = Bridge(Cloud(c["kind"], c["base"], c["model"], c["key"], c["max_tokens"]), timeout,
-                                     self._on_cloud)
-                mode = ["--relay", self.bridge.path]
-            spec = ({"mode": mode, "timeout": timeout, "net": plan["net"], "allow_net": plan["allow_net"]}
-                    if use_model else None)
-            if live_model:
-                spec["sandbox_argv"] = model_argv
         cfg = {**CFG, "model": (2 if closed else 1) if use_model else 0, "budget": s.budget,
                "model_answer": s.answer, "task_seed": s.seed}
         if self.consent:
@@ -579,10 +561,12 @@ class Run(threading.Thread):
         with self.lock:
             self._act("loading_model" if live_model else "starting")
         kind = "exchange" if self.files is not None else "6"
-        self.driver = SealedDriver(root, frozenset(), kind=kind, model=spec,
-                                   timeout=TURNS_MAX * timeout + 600.0, seal_mode=plan["seal"])
+        self.driver = IsolatedDriver(root, kind=kind, model=spec,
+                                     timeout=TURNS_MAX * timeout + 60.0)
         if self.stop_requested:
             self.driver.proc.kill()
+            if self.bridge is not None:
+                self.bridge.close()
         tail = threading.Thread(target=self._tail, args=(root / "run00001" / "journal5.jsonl",), daemon=True)
         tail.start()
         with self.lock:
@@ -590,8 +574,14 @@ class Run(threading.Thread):
         mods = {1: self.agent, 2: self.agent if s.second == "такой же" else IDLE}
         checker = exchange_observer.check if self.files is not None else answer_observer.check
         try:
+            # The observer's import analysis is independent of the executor.
+            # It uses freshly isolated inspection of the exact in-memory modules.
+            imports = {}
+            for i, source in mods.items():
+                inspected = worker.inspect(source)
+                imports[i] = frozenset(inspected["imports"]) if "imports" in inspected else None
             r = run_contours(self.driver, None, "песочница", mods, cfg, rounds=1, checker=checker,
-                             extra={"ext_world": W6, "expect_all": False,
+                             extra={"ext_world": W6, "expect_all": False, "module_imports": imports,
                                     "gateway_provider": self.consent.provider if self.consent else None},
                              words=s.words, files=self.files)
         finally:
@@ -654,13 +644,13 @@ class Run(threading.Thread):
                 "seal": plan.get("seal"), "net": plan.get("net"), "open": self.s.contour == "разомкнутый",
                 "workdir": r.get("workdir"), "journal_tip": journal_tip,
                 "gateway": asdict(self.consent) if self.consent else None,
-                "tokens": dict(self.bridge.tokens) if self.bridge else None}
+                "tokens": dict(self.bridge.tokens) if isinstance(self.bridge, (Bridge, Gateway)) else None}
             self.state = "готово"
             self._act("done")
 
     def _save(self) -> None:
         """Итоги — рядом с журналом. Ключа здесь нет: Settings.public."""
-        if not self.dir.exists():
+        if not self._owns_dir:
             return
         snap = self.snapshot()
         snap.pop("events", None)
@@ -672,19 +662,48 @@ class Run(threading.Thread):
         put_private(self.dir / "itog.json", data)
 
 
-def zip_run(stamp: str) -> Path:
-    """Папка прогона одним zip. Имя проверяется: только прогоны из RUNS."""
-    if not (valid_session(stamp) or (stamp.replace("_", "").isdigit() and len(stamp) == 15)):
+def _report_summary(path: Path) -> dict:
+    report = json.loads(path.read_bytes())
+    result = report.get("result") or {}
+    counts = ("spent", "left", "questions", "bytes_to_model", "silent", "unparsed", "accepted", "turns")
+    tally = report.get("tally") or {}
+    totals = ("laws_total", "laws_holds", "laws_na")
+    summary = {"version": 1, "tally": {
+        contour: {k: tally[contour][k] for k in counts if type(tally[contour].get(k)) is int}
+        for contour in ("1", "2") if isinstance(tally.get(contour), dict)},
+        **{k: result[k] for k in totals if type(result.get(k)) is int}}
+    if is_digest(result.get("journal_tip")):
+        summary["journal_tip"] = result["journal_tip"]
+    return summary
+
+
+def zip_run(stamp: str, *, detailed: bool = False) -> Path:
+    """Default export contains only structured counters and a journal hash."""
+    if not (valid_session(stamp) or re.fullmatch(r"[0-9]{8}_[0-9]{6}(?:_[0-9a-f]{16})?", stamp)):
         raise ValueError("нет такого прогона")
-    d = RUNS / stamp
-    if not d.is_dir():
-        raise ValueError("нет такого прогона")
-    out = RUNS / f"prostranstvo_{stamp}.zip"
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-        for p in sorted(d.rglob("*")):
-            rel = p.relative_to(d)
-            if "exchange-state" in rel.parts:
-                continue
-            if p.is_file() and not p.is_symlink():
-                z.write(p, p.relative_to(RUNS))
-    return out
+    directory = RUNS / stamp
+    report = directory / "itog.json"
+    if directory.is_symlink() or report.is_symlink() or not report.is_file():
+        raise ValueError("итог прогона ещё не сохранён")
+    suffix = "-detailed" if detailed else ""
+    target = RUNS / f"prostranstvo_{stamp}{suffix}.zip"
+    fd, name = tempfile.mkstemp(prefix=".diagnostics-", dir=RUNS)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as stream, zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
+            if detailed:
+                # Only the diagnostic files shown by the consent UI. Drafts,
+                # file snapshots and output blobs do not belong in either ZIP.
+                paths = [report, directory / "gateway-receipts.jsonl"]
+                worker_root = directory / "ispolnitel"
+                if not worker_root.is_symlink():
+                    paths.extend(worker_root.glob("run*/journal5.jsonl"))
+                for path in paths:
+                    if path.is_file() and not path.is_symlink() and not path.parent.is_symlink():
+                        archive.write(path, path.relative_to(RUNS))
+            else:
+                archive.writestr(f"{stamp}/summary.json", pack_json(_report_summary(report)))
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return target

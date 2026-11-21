@@ -102,6 +102,7 @@ class Limits:
     memory_pages: int = 2          # предел одной линейной памяти, страниц по 64 КиБ
     instances: int = 4             # экземпляров на контур, включая помощников
     object_bytes: int = 4096       # предел размера объекта
+    wasm_table_elements: int = 4096  # элементов в одной таблице WebAssembly
     table_entries: int = 64        # предел длины таблицы полномочий
     price: int = 1000              # цена одной записи в E, в единицах топлива
 
@@ -217,7 +218,8 @@ class _Contour:
         lim = sb.limits
         self.store = w.Store(sb.engine)
         self.store.set_limits(memory_size=lim.memory_pages * 65536, instances=lim.instances,
-                              tables=lim.instances, memories=lim.instances)
+                              tables=lim.instances, memories=lim.instances,
+                              table_elements=lim.wasm_table_elements)
         self.store.set_fuel(lim.fuel)
         self.canary = sb.canary_for(i)
         self.labels = {f"А{i}"}                  # метки сведений в памяти контура

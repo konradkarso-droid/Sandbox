@@ -28,9 +28,14 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import os
+import re
+import socket
 import sys
+import time
 import traceback
 from pathlib import Path
+
+from sandbox.ipc import Channel
 
 MAX_MODULE = 1 << 20          # объявленные числа, не подобранные
 MAX_TEXT = 4096
@@ -214,8 +219,9 @@ def _handle_factory(kind: str = "5"):
     return handle, state
 
 
-def _main(conn, root: str, defects: list[str], limits: dict | None, kind: str = "5",
+def _main(stream, root: str, defects: list[str], limits: dict | None, kind: str = "5",
           model: dict | None = None, *, model_links=None) -> None:
+    conn = Channel(stream)
     import wasmtime  # noqa: F401  — библиотека грузится до включения аудита
     from sandbox.executor5 import Limits
     from sandbox.executor5b import Crash
@@ -231,8 +237,8 @@ def _main(conn, root: str, defects: list[str], limits: dict | None, kind: str = 
     state["audit"].on = True
     while True:
         try:
-            msg = conn.recv()
-        except (EOFError, OSError):
+            msg = conn.receive()
+        except (EOFError, OSError, ValueError, RecursionError):
             return
         try:
             reply = ("ok", handle(msg))
@@ -242,7 +248,10 @@ def _main(conn, root: str, defects: list[str], limits: dict | None, kind: str = 
             os._exit(CRASH_EXIT)               # сбой: процесс умирает без уборки
         except Exception:
             reply = ("сбой", traceback.format_exc(limit=8))
-        conn.send(reply)
+        try:
+            conn.send(reply)
+        except (OSError, ValueError, RecursionError):
+            return
 
 
 class Driver:
@@ -265,11 +274,16 @@ class Driver:
 
     def _start(self) -> None:
         ctx = mp.get_context("spawn")
-        self.conn, child = ctx.Pipe()
+        parent, child = socket.socketpair()
+        self.conn = Channel(parent)
         self.proc = ctx.Process(target=self.entry or _main, args=(child, str(self.root), sorted(self.defects), self.limits,
                                                     self.kind, self.model), daemon=True)
-        self.proc.start()
-        child.close()
+        with child:
+            try:
+                self.proc.start()
+            except BaseException:
+                self.conn.close()
+                raise
 
     def respawn(self) -> None:
         """Новый процесс исполнителя после сбоя. Состояние — только файлы."""
@@ -281,19 +295,39 @@ class Driver:
         if not self.proc.is_alive():
             self.failures.append("процесс исполнителя мёртв")
             return ("сбой", "процесс исполнителя мёртв")
-        self.conn.send(msg)
-        if not self.conn.poll(timeout):
-            self.failures.append(f"исполнитель не ответил за {timeout} с на {msg[0]}")
-            return ("сбой", "нет ответа")
+        deadline = time.monotonic() + timeout
         try:
-            status, value = self.conn.recv()
-        except (EOFError, OSError):
-            self.proc.join(timeout=10)
-            if self.proc.exitcode == CRASH_EXIT:
-                self.crashes += 1
-                return ("сбой-инъекция", "процесс исполнителя завершён в точке сбоя")
-            self.failures.append(f"процесс исполнителя умер на команде {msg[0]} (код {self.proc.exitcode})")
-            return ("сбой", "процесс умер")
+            self.conn.send(msg, deadline)
+            reply = self.conn.receive(deadline)
+            if not isinstance(reply, tuple) or len(reply) != 2:
+                raise ValueError("invalid executor reply")
+            status, value = reply
+            if status not in ("ok", "отказ", "сбой") or (status != "ok" and not isinstance(value, str)):
+                raise ValueError("invalid executor status")
+            if status == "ok" and msg[0] in ("new", "recover", "restart"):
+                if not isinstance(value, str) or Path(value).parent != self.root or not re.fullmatch(r"run[0-9]{5,}", Path(value).name):
+                    raise ValueError("invalid executor work directory")
+            if status == "ok":
+                if msg[0] == "dump" and not isinstance(value, dict):
+                    raise ValueError("invalid executor dump")
+                if msg[0] == "audit" and not (isinstance(value, list) and all(isinstance(x, str) for x in value)):
+                    raise ValueError("invalid executor audit")
+                if msg[0] in ("load", "run") and not (isinstance(value, tuple) and len(value) == 2
+                                                     and all(isinstance(x, str) for x in value)):
+                    raise ValueError("invalid executor outcome")
+                if msg[0] == "say" and value is not None:
+                    raise ValueError("invalid executor acknowledgment")
+        except (EOFError, OSError, ValueError, RecursionError) as exc:
+            self.conn.close()
+            if isinstance(exc, EOFError):
+                self.proc.join(timeout=1)
+                if self.proc.exitcode == CRASH_EXIT:
+                    self.crashes += 1
+                    return ("сбой-инъекция", "процесс исполнителя завершён в точке сбоя")
+            if self.proc.is_alive():
+                self.proc.kill()
+            self.failures.append(f"ошибка канала исполнителя на «{msg[0]}»: {exc}")
+            return ("сбой", "канал исполнителя закрыт")
         if status == "сбой":
             self.failures.append(value)
         return status, value
@@ -304,7 +338,8 @@ class Driver:
         finally:
             self.proc.join(timeout=10)
             if self.proc.is_alive():
-                self.proc.terminate()
+                self.proc.kill()
+                self.proc.join(timeout=2)
 
 
 class LocalDriver:

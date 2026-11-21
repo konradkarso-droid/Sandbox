@@ -37,6 +37,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -114,6 +115,46 @@ def argv_for(mode: list[str], allow_net: bool = False) -> list[str]:
     raise RuntimeError("нет `unshare -rn`: модель нельзя запустить без сети")
 
 
+MODEL_LINE_LIMIT = 16 * 1024
+
+
+def _wait(sel, deadline: float) -> None:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0 or not sel.select(remaining):
+        raise TimeoutError("model deadline expired")
+
+
+def _write(fd: int, data: bytes, deadline: float) -> None:
+    pending = memoryview(data)
+    with selectors.DefaultSelector() as sel:
+        sel.register(fd, selectors.EVENT_WRITE)
+        while pending:
+            _wait(sel, deadline)
+            try:
+                pending = pending[os.write(fd, pending):]
+            except BlockingIOError:
+                continue
+
+
+def _line(fd: int, deadline: float, limit: int) -> bytes:
+    line = bytearray()
+    with selectors.DefaultSelector() as sel:
+        sel.register(fd, selectors.EVENT_READ)
+        while len(line) < limit:
+            _wait(sel, deadline)
+            try:
+                chunk = os.read(fd, min(4096, limit - len(line)))
+            except BlockingIOError:
+                continue
+            if not chunk:
+                raise EOFError("model stream closed")
+            line.extend(chunk)
+            end = line.find(b"\n")
+            if end >= 0:
+                return bytes(line[:end])
+    raise ValueError("model reply exceeds its bounds")
+
+
 class ModelLink:
     """Один процесс модели — для одного контура."""
 
@@ -127,65 +168,64 @@ class ModelLink:
         self.isolated = self.argv[:2] == ["unshare", "-rn"] if isolated is None else isolated
         self.proc = subprocess.Popen(self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      stderr=subprocess.DEVNULL, close_fds=True,
-                                     env={} if sandboxed else None, preexec_fn=_die_with_parent(os.getpid()))
+                                     env={} if sandboxed else None,
+                                     preexec_fn=None if sandboxed else _die_with_parent(os.getpid()))
+        os.set_blocking(self.proc.stdin.fileno(), False)
+        os.set_blocking(self.proc.stdout.fileno(), False)
         self.dead = False
+        self._lock = threading.Lock()
         if sandboxed:
-            fd = self.proc.stdout.fileno()
-            with selectors.DefaultSelector() as sel:
-                sel.register(fd, selectors.EVENT_READ)
-                ready = sel.select(5) and os.read(fd, len(b"ready\n")) == b"ready\n"
-            if not ready:
+            try:
+                if _line(self.proc.stdout.fileno(), time.monotonic() + 5, len(b"ready\n")) != b"ready":
+                    raise ValueError("invalid readiness message")
+            except (EOFError, OSError, ValueError) as exc:
                 self._die()
-                raise RuntimeError("Bubblewrap model sandbox did not start")
+                raise RuntimeError("Bubblewrap model sandbox did not start") from exc
 
     def ask(self, question: bytes, limit: int) -> bytes | None:
         """Ответ не длиннее limit; None — модель не ответила в срок или
         процесс умер. Тогда процесс убит, и дальше переходник молчит."""
-        if self.dead:
-            return None
-        line = json.dumps({"q": base64.b64encode(question).decode(), "max": limit}).encode() + b"\n"
-        try:
-            self.proc.stdin.write(line)
-            self.proc.stdin.flush()
-        except (BrokenPipeError, OSError):
-            return self._die()
-        buf = b""
-        deadline = time.monotonic() + self.timeout
-        fd = self.proc.stdout.fileno()
-        with selectors.DefaultSelector() as sel:
-            sel.register(fd, selectors.EVENT_READ)
-            while b"\n" not in buf:
-                left = deadline - time.monotonic()
-                if left <= 0 or not sel.select(left):
-                    return self._die()
-                chunk = os.read(fd, 65536)
-                if not chunk:
-                    return self._die()
-                buf += chunk
-        try:
-            a = base64.b64decode(json.loads(buf.split(b"\n", 1)[0])["a"])
-        except Exception:
-            return self._die()
-        return a[:limit]
+        with self._lock:
+            if self.dead:
+                return None
+            line = json.dumps({"q": base64.b64encode(question).decode(), "max": limit}).encode() + b"\n"
+            deadline = time.monotonic() + self.timeout
+            try:
+                _write(self.proc.stdin.fileno(), line, deadline)
+                reply = _line(self.proc.stdout.fileno(), deadline, MODEL_LINE_LIMIT)
+                a = base64.b64decode(json.loads(reply)["a"], validate=True)
+            except (EOFError, OSError, ValueError, RecursionError, KeyError, TypeError):
+                return self._die()
+            return a[:limit]
 
     def _die(self) -> None:
         self.dead = True
         try:
             self.proc.kill()
-            self.proc.wait(timeout=10)
-        except Exception:
+            self.proc.wait(timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
             pass
+        self.proc.stdin.close()
+        self.proc.stdout.close()
         return None
 
-    def close(self) -> None:
-        if self.dead:
-            return
-        try:
-            self.proc.stdin.close()
-            self.proc.wait(timeout=10)
-        except Exception:
+    def close(self, *, force=False) -> None:
+        if force:
+            # Wake an active pipe reader before waiting for its lock.
             self.proc.kill()
-        self.dead = True
+        with self._lock:
+            if self.dead:
+                return
+            if force:
+                self._die()
+                return
+            self.proc.stdin.close()
+            try:
+                self.proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self._die()
+            self.proc.stdout.close()
+            self.dead = True
 
 
 def start_links(spec: dict | None) -> dict[int, ModelLink] | None:
@@ -197,6 +237,9 @@ def start_links(spec: dict | None) -> dict[int, ModelLink] | None:
         return None
     mode, timeout = list(spec.get("mode", ["--stub"])), float(spec.get("timeout", 120.0))
     net = spec.get("net", "netns")
+    if net == "relay":
+        from sandbox.gateway_link import RelayedModel
+        return {i: RelayedModel(conn, timeout, spec["isolated"]) for i, conn in spec["channels"].items()}
     if net == "gateway":
         from sandbox.gateway_link import GatewayLink
         return {i: GatewayLink(conn, timeout, spec["manifest"]) for i, conn in spec["channels"].items()}

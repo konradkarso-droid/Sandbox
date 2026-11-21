@@ -15,7 +15,7 @@ SYSTEM_LIBS = ("/usr/lib", "/usr/lib64", "/lib", "/lib64", "/lib32")
 START = """
 import json, runpy, sys
 sys.path[:0] = json.loads(sys.argv[1])
-sys.argv = ["/model/serve.py", "--gguf", "/model/weights.gguf"]
+sys.argv = {argv!r}
 print("ready", flush=True)
 runpy.run_path(sys.argv[0], run_name="__main__")
 """
@@ -27,11 +27,11 @@ def _prefix() -> list[str]:
         raise RuntimeError("Bubblewrap (bwrap) is required for local GGUF models")
     return [
         str(Path(bwrap).resolve()), "--unshare-user", "--disable-userns",
-        "--unshare-pid", "--unshare-ipc", "--unshare-net", "--new-session",
+        "--unshare-pid", "--unshare-ipc", "--unshare-net", "--unshare-uts", "--new-session",
         "--die-with-parent", "--cap-drop", "ALL", "--clearenv",
         "--setenv", "HOME", "/tmp", "--setenv", "TMPDIR", "/tmp",
         "--dev", "/dev", "--proc", "/proc", "--remount-ro", "/proc",
-        "--tmpfs", "/tmp", "--dir", "/model", "--chdir", "/tmp",
+        "--size", str(16 << 20), "--tmpfs", "/tmp", "--dir", "/model", "--chdir", "/tmp",
     ]
 
 
@@ -58,13 +58,18 @@ def _runtime() -> tuple[list[str], str, list[str]]:
     return mounts, str(python), packages
 
 
-def command(model: Path) -> list[str]:
+def command(model: Path, *, script: bool = False) -> list[str]:
     prefix = _prefix()
     mounts, python, packages = _runtime()
+    path = "/model/steps.json" if script else "/model/weights.gguf"
+    mode = "--script" if script else "--gguf"
+    # Keep the constants in the isolated bootstrap rather than adding them
+    # after the interpreter arguments used by the boundary probe.
+    start = START.format(argv=["/model/serve.py", mode, path])
     return [
         *prefix, *mounts, "--ro-bind", str(SERVE), "/model/serve.py",
-        "--ro-bind", str(model.resolve(strict=True)), "/model/weights.gguf",
-        "--remount-ro", "/", "--", python, "-I", "-S", "-c", START, json.dumps(packages),
+        "--ro-bind", str(model.resolve(strict=True)), path,
+        "--remount-ro", "/", "--", python, "-I", "-S", "-c", start, json.dumps(packages),
     ]
 
 

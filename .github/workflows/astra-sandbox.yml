@@ -27,6 +27,10 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+      - name: Установка Bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
       - name: Проверка установки без облачных запросов
         run: |
           set -o pipefail
@@ -34,10 +38,8 @@ jobs:
       - name: Тесты границ с локальным получателем
         run: |
           set -o pipefail
-          sudo apt-get update
-          sudo apt-get install -y bubblewrap
           .venv/bin/python3 -m pip install pytest
-          .venv/bin/python3 -m pytest -q -rs tests/test_app.py tests/test_gateway.py tests/test_exchange.py \
+          .venv/bin/python3 -m pytest -q -rs tests/test_app.py tests/test_gateway.py tests/test_exchange.py tests/test_audit_remediation.py tests/test_desktop_hardening.py \
             | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Прогон оплачиваемого файлового обмена с Astra
         if: inputs.live

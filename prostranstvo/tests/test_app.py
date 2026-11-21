@@ -136,13 +136,11 @@ except RuntimeError as e:
     assert r.stdout.startswith("отказ:") and "сеть не отнята" in r.stdout, r.stdout + r.stderr
 
 
-def test_no_seal_no_unshare_refuses_closed(monkeypatch):
+def test_unavailable_executor_refuses_both_profiles(monkeypatch):
     import app.runner as runner
-    monkeypatch.setattr(runner.sealmod, "check", lambda allow_unix: "нет печати")
-    monkeypatch.setattr(runner, "can_unshare", lambda: False)
-    assert net_plan("сомкнутый")["error"] == {"code": "closed_impossible", "why": "нет печати"}
-    plan = net_plan("разомкнутый")
-    assert plan["seal"] is None and plan["note"]["code"] == "no_seal_open"
+    monkeypatch.setattr(runner.worker, "check", lambda: "нет изоляции")
+    for contour in ("сомкнутый", "разомкнутый"):
+        assert net_plan(contour) == {"error": {"code": "executor_sandbox_unavailable", "why": "нет изоляции"}}
 
 
 # ---------------------------------------------------------------- облако-заглушка
@@ -238,7 +236,7 @@ def _words():
 
 # ---------------------------------------------------------------- прогоны
 
-def test_install_check_run_laws_hold(agent, tmp_path):
+def test_install_check_run_laws_hold(isolated_executor, agent, tmp_path):
     run = _run(settings_from({"contour": "сомкнутый", "model": INSTALL_CHECK, "words": _words()}), agent, tmp_path)
     snap = run.snapshot()
     res = snap["result"]
@@ -255,7 +253,7 @@ def test_install_check_run_laws_hold(agent, tmp_path):
     assert result["runtime"]["wasmtime"] == version("wasmtime")
 
 
-def test_open_contour_openai(agent, tmp_path):
+def test_open_contour_openai(isolated_executor, agent, tmp_path):
     fake = FakeCloud("ok", "openai")
     try:
         s = settings_from({"contour": "разомкнутый", "words": _words(),
@@ -300,7 +298,7 @@ def test_open_contour_anthropic_protocol():
     assert fake.got[0]["max_tokens"] == 64 and fake.got[0]["temperature"] == 0
 
 
-def test_cut_answer_marked_on_its_move(agent, tmp_path):
+def test_cut_answer_marked_on_its_move(isolated_executor, agent, tmp_path):
     """Облако оборвало ответ на пределе: у этого хода — подсказка, у
     остальных — нет; сам ответ модели не тронут (пустой и остаётся)."""
     fake = FakeCloud("ok", "openai", cut=frozenset({2}))
@@ -319,7 +317,7 @@ def test_cut_answer_marked_on_its_move(agent, tmp_path):
     assert snap["result"]["broken"] == []
 
 
-def test_submit_refusal_carries_reason(agent, tmp_path):
+def test_submit_refusal_carries_reason(isolated_executor, agent, tmp_path):
     """Повторная сдача уже принятой задачи: экран получает причину отказа
     («уже принято»), а не одно слово «отказ» — иначе он показал бы
     «ответ неверен», которого не было."""
@@ -349,7 +347,7 @@ def test_cut_flag_both_protocols():
         assert whole == (SCRIPT[1], {"in": 7, "out": 2, "cut": False}), kind
 
 
-def test_cloud_failure_is_silence(agent, tmp_path):
+def test_cloud_failure_is_silence(isolated_executor, agent, tmp_path):
     fake = FakeCloud("500")
     try:
         s = settings_from({"contour": "разомкнутый", "words": _words(), "timeout": 6,
@@ -368,7 +366,7 @@ def test_cloud_failure_is_silence(agent, tmp_path):
     assert snap["tally"][1]["silent"] == 1
 
 
-def test_stop_mid_question(agent, tmp_path):
+def test_stop_mid_question(isolated_executor, agent, tmp_path):
     fake = FakeCloud("sleep")
     try:
         s = settings_from({"contour": "разомкнутый", "words": _words(), "timeout": 60,
@@ -418,7 +416,7 @@ def test_settings_refused(raw, why):
     assert e.value.en and e.value.en != e.value.ru           # отказ есть и по-английски
 
 
-def test_texts_cover_every_law(agent, tmp_path):
+def test_texts_cover_every_law(isolated_executor, agent, tmp_path):
     """Каждый закон, который проверяет наблюдатель, стоит в группе экрана и
     пересказан на обоих языках; у каждого сценария — оба языка, и слова
     влезают в то, что агент читает."""
@@ -470,7 +468,7 @@ def test_screen_token_and_host(monkeypatch):
         assert code == 200 and app.token.encode() in page
         code, info = get("/api/info", {"X-Token": app.token})
         info = json.loads(info)
-        assert code == 200 and info["seal"]["сомкнутый"] is None
+        assert code == 200 and info["seal"]["сомкнутый"] == app.executor_sandbox_error
         assert next(p for p in info["presets"] if p["id"] == "openrouter")["has_env_key"] is True
         assert "КЛЮЧ-ИЗ-ОКРУЖЕНИЯ".encode() not in json.dumps(info, ensure_ascii=False).encode()
     finally:
@@ -526,7 +524,7 @@ def _results(run) -> list[str]:
     return [x.rsplit(" => ", 1)[1] for x in last.split("\n") if x.startswith("> ")]
 
 
-def test_english_agent_english_moves(tmp_path):
+def test_english_agent_english_moves(isolated_executor, tmp_path):
     script = ["LOOKUP модель", "READ TASKS", "SOLVE 1", "CALL 40 0 0 16", "Move: STOP"]
     fake = FakeCloud("ok", script=script)
     try:
@@ -542,7 +540,7 @@ def test_english_agent_english_moves(tmp_path):
     assert snap["tally"][1]["questions"] == len(script) and snap["tally"][1]["unparsed"] == 0
 
 
-def test_moves_understood_in_both_languages(agent, tmp_path):
+def test_moves_understood_in_both_languages(isolated_executor, agent, tmp_path):
     """Русский вид понимает английский ход и отвечает по-русски; английский —
     наоборот."""
     fake = FakeCloud("ok", script=["READ TASKS", "СТОП"])
@@ -565,7 +563,7 @@ def test_move_of_english():
     assert move_of("Move: CALL 3 1") == "ВЫЗОВ" and move_of("ХОД: СТОП") == "СТОП" and move_of("hello") is None
 
 
-def test_own_agent_runs(tmp_path, monkeypatch):
+def test_own_agent_runs(isolated_executor, tmp_path, monkeypatch):
     import app.runner as runner
     monkeypatch.setattr(runner, "AGENTS", tmp_path / "agents")
     (tmp_path / "agents").mkdir()
@@ -590,7 +588,7 @@ def test_own_agent_runs(tmp_path, monkeypatch):
     (b'(module (func (export "start")))', "нет функции main"),
     (b"not wasm", "не WebAssembly"),
 ])
-def test_own_agent_refused(tmp_path, monkeypatch, wat, why):
+def test_own_agent_refused(isolated_executor, tmp_path, monkeypatch, wat, why):
     import app.runner as runner
     monkeypatch.setattr(runner, "AGENTS", tmp_path)
     (tmp_path / "bad.wat").write_bytes(wat)
@@ -613,7 +611,8 @@ def test_live_gguf_refuses_to_start_without_bwrap(tmp_path, monkeypatch):
         pytest.fail("executor started without a Bubblewrap sandbox")
 
     monkeypatch.setattr(model_sandbox, "check", lambda: "user namespaces unavailable")
-    monkeypatch.setattr(runner, "SealedDriver", no_driver)
+    monkeypatch.setattr(runner.worker, "check", lambda: None)
+    monkeypatch.setattr(runner, "IsolatedDriver", no_driver)
     settings = runner.Settings(contour="сомкнутый", words="test", model=str(tmp_path / "test.gguf"))
     run = runner.Run(settings, b"", tmp_path)
     run.run()

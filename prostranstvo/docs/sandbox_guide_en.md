@@ -34,8 +34,9 @@ Use a GGUF file from a trusted source or a cloud model.
   is not supported.
 - Python 3.11 or newer and git. On Debian and Ubuntu also `python3-venv`:
   `sudo apt install git python3-venv`.
-- For local GGUF, install Bubblewrap (for example, `sudo apt install bubblewrap`)
-  and allow user namespaces for it.
+- Desktop runs need Bubblewrap (`sudo apt install bubblewrap` on Debian
+  or Ubuntu) with unprivileged user namespaces enabled. This includes
+  cloud runs and model-free file exchange.
 - About 300 MB of disk, plus the models themselves.
 
 # Start
@@ -171,8 +172,9 @@ When the agent is done, the observer checks the log against the laws.
   a group to see its laws in plain words.
 - A line about the network and the audit: whether the sandbox touched the
   network, foreign files or processes.
-- “Download the log and results (zip)” — the environment's log and the
-  run's results. The key is not there.
+- “Download summary (ZIP)” exports counters and the journal hash.
+  “Download full logs (ZIP)” asks for separate confirmation. Full prompts
+  and replies may contain text from input files.
 
 With a cloud model the laws check the sandbox, not the provider: if both
 agents ask the same cloud model, a link between them through the provider
@@ -189,7 +191,8 @@ the results (`itog.json`).
 | What you see | What to do |
 |---|---|
 | “Could not create the environment” | `sudo apt install python3-venv` |
-| “a local model is not available here” | Bubblewrap is unavailable or cannot set up namespaces. The screen shows the reason. |
+| “Executor isolation is unavailable” | Check that Bubblewrap is installed and user namespaces are available. The screen shows the reason. |
+| “a local model is not available here” | The screen shows why the GGUF loader could not be isolated. |
 | “install the engine first” | `python3 start.py --local` |
 | cloud: “key not accepted (401)” | check the key |
 | cloud: “no money on the account (402)” | top up or use a free model |

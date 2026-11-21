@@ -394,7 +394,12 @@ const T = {
   seal_none: "Сеть у песочницы системой не отнималась — её держало только устройство ворот.",
   open_note: "Модель облачная: законы проверяют песочницу, а не поставщика. Если оба агента спрашивают одну облачную модель, связь между ними через поставщика песочница не видит.",
   tokens: "Токены облака (со слов поставщика): вопросы {i}, ответы {o}.",
-  zip: "Скачать журнал и итоги (zip)", again: "Новый прогон",
+  zip: "Скачать сводку (ZIP)", zip_detail: "Скачать полные журналы (ZIP)",
+  zip_detail_confirm: "В ZIP войдут итоги и журналы с полными запросами и ответами модели. Их текст может содержать данные входных файлов. Скачать?",
+  executor_unavailable: "Изоляция исполнителя недоступна ({why}).",
+  n_executor_sandbox_unavailable: "Изоляция исполнителя недоступна ({why}).",
+  n_run_exists: "Этот сеанс уже запущен.",
+  again: "Новый прогон",
   stopped_text: "Законы не проверялись: для сверки нужен законченный прогон. Журнал до остановки сохранён.",
   error_text: "Прогон не дошёл до конца.",
   st_h: "соблюдён", st_b: "нарушен", st_na: "не задет",
@@ -496,7 +501,12 @@ const T = {
   seal_none: "The system did not take the network away from the sandbox — only the gates held it.",
   open_note: "The model is a cloud one: the laws check the sandbox, not the provider. If both agents ask the same cloud model, a link between them through the provider is invisible to the sandbox.",
   tokens: "Cloud tokens (as counted by the provider): questions {i}, answers {o}.",
-  zip: "Download the log and results (zip)", again: "New run",
+  zip: "Download summary (ZIP)", zip_detail: "Download full logs (ZIP)",
+  zip_detail_confirm: "This ZIP includes the results and full model prompts and replies. Their text may contain data from input files. Download it?",
+  executor_unavailable: "Executor isolation is unavailable ({why}).",
+  n_executor_sandbox_unavailable: "Executor isolation is unavailable ({why}).",
+  n_run_exists: "This session has already started.",
+  again: "New run",
   stopped_text: "The laws were not checked: that needs a finished run. The log up to the stop is saved.",
   error_text: "The run did not finish.",
   st_h: "holds", st_b: "violated", st_na: "not touched",
@@ -961,7 +971,8 @@ function checkReady() {
   if (!INFO) return;
   renderKeyHint();
   let why = "";
-  if (!INFO.agent) why = INFO.agent_error || "agent";
+  if (INFO.executor_sandbox_error) why = t("executor_unavailable", {why: INFO.executor_sandbox_error});
+  else if (!INFO.agent) why = INFO.agent_error || "agent";
   else if (contour === "сомкнутый") {
     if (exchangeJob && exchangeStarted === exchangeJob.id) why = t("exchange_new");
     else if (ownWithoutModel()) {
@@ -1045,7 +1056,7 @@ function clock(s) { s = Math.max(0, Math.round(s)); return s < 60 ? `${s} ${sec(
 const live = (r) => ["готовится", "идёт", "проверка законов"].includes(r.state);
 
 function render(r) {
-  $("notes").innerHTML = r.notes.map((n) => `<div class="note ${["cloud_failed", "host_crash", "closed_impossible", "model_sandbox_unavailable", "model_integrity"].includes(n.code) ? "bad" : "warn"}">${esc(t("n_" + n.code, {why: (LANG === "en" && n.why_en) || n.why}))}</div>`).join("");
+  $("notes").innerHTML = r.notes.map((n) => `<div class="note ${["cloud_failed", "host_crash", "closed_impossible", "model_sandbox_unavailable", "model_integrity", "executor_sandbox_unavailable", "run_exists"].includes(n.code) ? "bad" : "warn"}">${esc(t("n_" + n.code, {why: (LANG === "en" && n.why_en) || n.why}))}</div>`).join("");
   $("statusCard").classList.remove("hidden");
   const st = {"проверка законов": "st_check", "готово": "st_done", "остановлено": "st_stopped", "ошибка": "st_error"}[r.state] || "st_run";
   $("state").textContent = t(st);
@@ -1107,11 +1118,29 @@ function movesHtml(i) {
   return (own ? `<p class="small">${t("own_moves")}</p>` : "") + html;
 }
 
+async function downloadDetailed(id) {
+  if (!window.confirm(t("zip_detail_confirm"))) return;
+  const response = await fetch(`/api/zip/${encodeURIComponent(id)}`, {
+    method: "POST", headers: {"X-Token": TOKEN, "content-type": "application/json"},
+    body: JSON.stringify({include_transcripts: true})
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error((LANG === "en" && error.error_en) || error.error || `HTTP ${response.status}`);
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `prostranstvo_${id}-detailed.zip`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function renderVerdict(r) {
   const v = $("verdictCard");
   if (live(r)) { v.classList.add("hidden"); return; }
   v.classList.remove("hidden");
-  const links = `<p class="small">${r.state === "ошибка" ? "" : `<a href="/api/zip/${r.id}?t=${TOKEN}">${t("zip")}</a> · `}<a href="#" id="again">${t("again")}</a></p>`;
+  const links = `<p class="small">${r.state === "ошибка" ? "" : `<a href="/api/zip/${r.id}?t=${TOKEN}">${t("zip")}</a> · <a href="#" id="zipDetailed">${t("zip_detail")}</a> · `}<a href="#" id="again">${t("again")}</a></p>`;
   if (r.state !== "готово" || !r.result || r.result.stopped) {
     const stopped = r.state === "остановлено";
     v.innerHTML = `<div class="verdict bad"><b>${t(stopped ? "st_stopped" : "st_error")}</b>${t(stopped ? "stopped_text" : "error_text")}</div>${links}`;
@@ -1141,6 +1170,11 @@ function renderVerdict(r) {
       gh.parentElement.querySelector(".laws").classList.toggle("hidden");
     };
   }
+  const detailed = $("zipDetailed");
+  if (detailed) detailed.onclick = (e) => {
+    e.preventDefault();
+    downloadDetailed(r.id).catch(error => window.alert(error.message));
+  };
   $("again").onclick = (e) => { e.preventDefault(); newRun(); };
 }
 

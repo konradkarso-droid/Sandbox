@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import base64
-import json
-
-from env.exchange import pack_json
+import time
 
 WIRE_LIMIT = 8192
 QUESTION_LIMIT = 4096
@@ -20,17 +18,18 @@ class GatewayLink:
 
     def ask_paid(self, question: bytes, limit: int, receipt: dict) -> bytes | None:
         try:
-            self.conn.send_bytes(pack_json({"q": base64.b64encode(question).decode(), "limit": limit,
-                                            "seq": receipt["seq"], "hash": receipt["hash"]}))
-            if self.conn.poll(self.timeout):
-                reply = json.loads(self.conn.recv_bytes(WIRE_LIMIT))
+            deadline = time.monotonic() + self.timeout
+            self.conn.send({"q": base64.b64encode(question).decode(), "limit": limit,
+                            "seq": receipt["seq"], "hash": receipt["hash"]}, deadline)
+            reply = self.conn.receive(deadline)
+            if isinstance(reply, dict):
                 if reply.get("status") == "answer":
                     result = base64.b64decode(reply["a"], validate=True)
                     if len(result) <= limit:
                         return result
                 if reply.get("status") == "refused":
                     return None
-        except (ValueError, TypeError, OSError, EOFError, KeyError):
+        except (ValueError, TypeError, OSError, EOFError, KeyError, RecursionError):
             pass
         self.close()
         return None
@@ -38,3 +37,22 @@ class GatewayLink:
     def close(self) -> None:
         self.dead = True
         self.conn.close()
+
+
+class RelayedModel:
+    def __init__(self, conn, timeout: float, isolated: bool):
+        self.conn, self.timeout, self.isolated = conn, timeout, isolated
+        self.dead = False
+
+    def ask(self, question: bytes, limit: int) -> bytes | None:
+        deadline = time.monotonic() + self.timeout
+        try:
+            self.conn.send((question, limit), deadline)
+            reply = self.conn.receive(deadline)
+            if isinstance(reply, bytes) and len(reply) <= limit:
+                return reply
+        except (ValueError, OSError, EOFError, RecursionError):
+            pass
+        self.dead = True
+        self.conn.close()
+        return None

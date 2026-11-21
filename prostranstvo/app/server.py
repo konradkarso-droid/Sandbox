@@ -22,29 +22,31 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import http.client
 import http.server
 import importlib.util
 import json
 import os
 import platform
 import secrets
+import shutil
 import sys
 import tempfile
 import threading
+import time
 import urllib.parse
 import urllib.request
 from dataclasses import asdict
 from pathlib import Path
 
-from app import seal as sealmod
 from app.cloud import PRESETS, Cloud, CloudError, check, cloud_destination, list_models
-from app import model_sandbox, texts, weights
+from app import model_sandbox, texts, weights, worker
 from app.exchange import ExchangeJob
 from app.gateway import PROVIDERS, select_files
+from app.http_body import reader
 from env.exchange import MAX_FILE_BYTES, snapshot_inbox
 from app.runner import (AGENTS, ANSWER_MAX, EXCHANGES, MODELS, OWN_MAX, RUNS, WORDS_AGENT_READS, Refusal, Run, agent_module,
                         own_agent_check, own_agent_source, settings_from, zip_run)
-from sandbox.model9 import can_unshare
 
 UI = Path(__file__).resolve().parent / "ui" / "index.html"
 
@@ -76,8 +78,8 @@ class App:
         self.agent_error: str | None = None
         self.downloads: dict[str, dict] = {}
         self.lock = threading.Lock()
-        self.seal = {"сомкнутый": sealmod.check(False), "разомкнутый": sealmod.check(True)}
-        self.unshare = can_unshare()
+        self.executor_sandbox_error = worker.check()
+        self.seal = dict.fromkeys(("сомкнутый", "разомкнутый"), self.executor_sandbox_error)
         self.model_sandbox_error = model_sandbox.check()
         try:
             self.agent = agent_module("ru")
@@ -91,9 +93,10 @@ class App:
         files = sorted(MODELS.glob("*.gguf"))
         return {
             "platform": f"{platform.system()} {platform.machine()}",
-            "seal": self.seal, "unshare": self.unshare,
-            "closed_ok": self.model_sandbox_error is None,
-            "exchange_wasm_ok": self.seal["сомкнутый"] is None,
+            "seal": self.seal,
+            "executor_sandbox_error": self.executor_sandbox_error,
+            "closed_ok": self.model_sandbox_error is None and self.executor_sandbox_error is None,
+            "exchange_wasm_ok": self.executor_sandbox_error is None,
             "model_sandbox_error": self.model_sandbox_error,
             "llama": importlib.util.find_spec("llama_cpp") is not None,
             "models": [{"name": p.name, "path": str(p), "mb": round(p.stat().st_size / 2 ** 20),
@@ -255,6 +258,7 @@ class App:
         st = self.downloads[name]
         try:
             MODELS.mkdir(exist_ok=True)
+            deadline = time.monotonic() + weights.COPY_TIMEOUT
             req = urllib.request.Request(url, headers={"user-agent": "prostranstvo-sandbox"})
             with tempfile.TemporaryDirectory(prefix=".gguf-", dir=MODELS) as staging:
                 target = Path(staging) / "weights.gguf"
@@ -262,13 +266,13 @@ class App:
                     length = response.headers.get("content-length")
                     if length is not None and int(length) != reference.size:
                         raise weights.IntegrityError("размер GGUF не совпадает с эталоном", "GGUF size does not match")
-                    weights.copy_verified(response.read1, target, reference,
-                                          progress=lambda done: st.update(done=done))
+                    with reader(response, deadline) as read:
+                        weights.copy_verified(read, target, reference, progress=lambda done: st.update(done=done))
                 os.link(target, MODELS / name)
             st.update(state="готово", sha256=reference.sha256)
         except weights.IntegrityError as exc:
             st.update(state="ошибка", error=exc.args[0], error_en=exc.args[-1])
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, http.client.HTTPException) as exc:
             st.update(state="ошибка", error=str(exc)[:300])
 
 
@@ -281,16 +285,19 @@ def make_handler(app: App):
         def log_message(self, fmt, *args):          # тишина в терминале
             pass
 
-        def _send(self, code: int, body: bytes, ctype: str, extra: dict | None = None) -> None:
+        def _headers(self, code: int, length: int, ctype: str, extra: dict | None = None) -> None:
             self.send_response(code)
             self.send_header("content-type", ctype)
-            self.send_header("content-length", str(len(body)))
+            self.send_header("content-length", str(length))
             self.send_header("cache-control", "no-store")
             self.send_header("x-content-type-options", "nosniff")
             self.send_header("referrer-policy", "no-referrer")
             for k, v in (extra or {}).items():
                 self.send_header(k, v)
             self.end_headers()
+
+        def _send(self, code: int, body: bytes, ctype: str, extra: dict | None = None) -> None:
+            self._headers(code, len(body), ctype, extra)
             self.wfile.write(body)
 
         def _json(self, obj, code: int = 200) -> None:
@@ -350,15 +357,20 @@ def make_handler(app: App):
                 except (ValueError, OSError) as exc:
                     self._json({"error": str(exc)}, 400)
             elif u.path.startswith("/api/zip/"):
-                try:
-                    p = zip_run(u.path.rsplit("/", 1)[1])
-                except ValueError as e:
-                    self._json({"error": str(e)}, 404)
-                    return
-                self._send(200, p.read_bytes(), "application/zip",
-                           {"content-disposition": f'attachment; filename="{p.name}"'})
+                self._diagnostics(u.path)
             else:
                 self._json({"error": "нет такого адреса"}, 404)
+
+        def _diagnostics(self, path: str, *, detailed: bool = False):
+            try:
+                archive = zip_run(path.rsplit("/", 1)[1], detailed=detailed)
+            except (ValueError, OSError) as exc:
+                self._json({"error": str(exc)}, 404)
+                return
+            with archive.open("rb") as stream:
+                self._headers(200, os.fstat(stream.fileno()).st_size, "application/zip",
+                              {"content-disposition": f'attachment; filename="{archive.name}"'})
+                shutil.copyfileobj(stream, self.wfile)
 
         def do_POST(self):
             u = urllib.parse.urlsplit(self.path)
@@ -380,6 +392,10 @@ def make_handler(app: App):
                             self._json({"ok": True})
                         else:
                             self._json(job.approve(body.get("request")))
+                elif u.path.startswith("/api/zip/"):
+                    if set(body) != {"include_transcripts"} or body["include_transcripts"] is not True:
+                        raise Refusal("подтвердите экспорт полных журналов", "confirm detailed log export")
+                    self._diagnostics(u.path, detailed=True)
                 elif u.path == "/api/stop":
                     if app.run:
                         app.run.stop()

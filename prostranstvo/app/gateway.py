@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
-import json
-import multiprocessing
+import select
+import socket
 import os
 from pathlib import Path
 import threading
@@ -20,6 +20,7 @@ import time
 from app.cloud import Cloud, CloudError, CloudOutcomeUnknown, PRESETS, ask_once
 from env.exchange import digest, input_manifest, pack_json, valid_name
 from sandbox.gateway_link import QUESTION_LIMIT, WIRE_LIMIT
+from sandbox.ipc import Channel
 from verification.observer5 import read_journal
 
 DEFAULT_CONSENT_SECONDS = 3600
@@ -70,9 +71,8 @@ class Gateway:
         self.sent = set()
         self.clients = {}
         self.peers = {}
-        ctx = multiprocessing.get_context("spawn")
         for contour in (1, 2):
-            client, peer = ctx.Pipe()
+            client, peer = (Channel(sock, WIRE_LIMIT) for sock in socket.socketpair())
             self.clients[contour], self.peers[contour] = client, peer
             threading.Thread(target=self._serve, args=(contour, peer), daemon=True).start()
 
@@ -167,19 +167,19 @@ class Gateway:
     def _serve(self, contour: int, conn) -> None:
         try:
             while not self.closed.is_set():
-                if not conn.poll(0.1):
+                if not select.select([conn.stream], [], [], 0.1)[0]:
                     continue
-                frame = json.loads(conn.recv_bytes(WIRE_LIMIT))
+                frame = conn.receive(time.monotonic() + 5)
                 reply = self._send(contour, frame)
-                conn.send_bytes(pack_json(reply))
+                conn.send(reply, time.monotonic() + 5)
                 if reply["status"] in ("unknown", "provider_error"):
                     return
-        except (OSError, EOFError, ValueError, TypeError):
+        except (OSError, EOFError, ValueError, TypeError, RecursionError):
             return
         finally:
             conn.close()
 
     def close(self) -> None:
         self.closed.set()
-        for conn in self.clients.values():
+        for conn in (*self.clients.values(), *self.peers.values()):
             conn.close()
